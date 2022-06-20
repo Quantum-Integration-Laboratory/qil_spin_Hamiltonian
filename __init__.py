@@ -1,1 +1,1 @@
-__all__ = ["spin_hamiltonian"]
+__all__ = ["spin_hamiltonian.py"]

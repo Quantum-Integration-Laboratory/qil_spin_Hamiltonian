@@ -1,8 +1,10 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 from numpy.core.shape_base import hstack
 from scipy.spatial.transform import Rotation
-
+from scipy.linalg import eig
+from matplotlib.colors import Normalize
 
 muB = 9.27400968e-24 #Bohr Magneton (Am^2)
 muN = 5.05078375e-27 #Nuclear Magneton (Am^2)
@@ -18,6 +20,7 @@ class cSpinHamiltonian:
         #Sets up electronic and nuclear spin operators and initialises empty static hamiltonian
         self.Edim = int(2*E+1)
         self.Idim = int(2*I+1)
+        self.dim = self.Edim*self.Idim
 
         self.S = spinOperator(E)
         self.I = spinOperator(I)
@@ -37,6 +40,21 @@ class cSpinHamiltonian:
         else:
             self.H+=self.HHF
         return self.HHF
+
+    #calculate the quadrapole interaction IQI
+    def quadrupoleInteraction(self,Q):
+        #calculate and reshape our hyperfine term
+        self.HQP = (self.I)@Q@(self.I).T
+        self.HQP = self.HyperfineReshape(self.HQP)
+
+        #if we haven't initialised the static hamiltonian set it to the quadrupole
+        #otherwise add the quadrupol term
+        if type(self.H) is NoneType:
+            self.H=self.HQP
+        else:
+            self.H+=self.HQP
+        return self.HQP
+
 
     #reshape the hamiltonian to maintain to be Edim*Idim by Edim*Idim
     def HyperfineReshape(self,H=None):
@@ -61,7 +79,7 @@ class cSpinHamiltonian:
         HZ = mu*B.T@g@S.T
         #reshape to be Idim*Edim square matrix
         HZ = HZ.T.reshape(dim,dim)
-        HZ = np.kron(HZ,np.eye((2*self.Idim)//dim))
+        HZ = np.kron(HZ,np.eye((self.dim)//dim))
         return HZ
     
     #calculates the electronic Zeeman, basically just fills in correct paramaters
@@ -84,26 +102,55 @@ class cSpinHamiltonian:
         #can pass arbitrary hamiltonian or use static
         if H is None:
             H=self.H      
-        E,V = np.linalg.eig(H)
-        E = np.sort(np.real(E)) #sort E into increasing values of eigen values
-        #VG = VG(:,ind) # arrange the columns in this order
-        F = E/(2*np.pi*hbar*1e9)     
-        return F
-
-    #calculate the quadrapole interaction
-    def quadrapoleInteraction(self,Q):
-        self.HQP = (self.I)@Q@(self.I).T
-        self.HQP = self.HyperfineReshape(self.HQP)
-        if type(self.H) is NoneType:
-            self.H=self.HQP
-        else:
-            self.H+=self.HQP
-        return self.HQP
+        E,V = np.linalg.eigh(H)
+        E = -1*np.real(E)
+        #May need sorting but eigh should return everything in sorted order
+            #ind = np.argsort(E) #sort E into increasing values of eigen values
+            #V = V[:,ind] # arrange the columns in this order
+            #E = E[ind]
+        F = E/(h*1e9)     
+        return F,V
 
 
-
+    #Loops over a set of magnetic field vectors returning the calculated frequencies
+        #Bs- b field magnitude
+        #thetas - theta angles
+        #phis -  phi angles
+        #dynamic - dynamic component of the B field should be a lambda function of B dependant hamiltonian terms.
+    def runBfieldSweep(self,Bs,thetas,phis, dynamic = None):
+        #sets the default dynamic term as both electronic and nuclear zeeman
+        if type(dynamic)==NoneType:
+            dynamic=lambda B: self.electronicZeeman(B)-self.nuclearZeeman(B)
+        #sets up our frequency vector
+        Freq = np.zeros((len(thetas),len(phis),len(Bs),int(self.dim)),dtype = np.csingle)
+        Vecs = np.zeros((len(thetas),len(phis),len(Bs),int(self.dim**2)),dtype = np.csingle)
         
-
+        #our loop
+        for i in range(len(thetas)):
+            for j in range(len(phis)):
+                for k in range(len(Bs)):
+                    #convert spherical Magnetic field to cartesian coords.
+                    B =sphereCart(Bs[k],thetas[i],phis[j])
+                    #Calculate our hamiltonian at this timestep
+                    HTemp =self.H+dynamic(B)
+                    #get the eigen frequencies at this timestep
+                    Freq[i,j,k,:],V = self.getEigFreq(HTemp)
+                    Htran = dynamic(np.matrix([1,0,0]).T)
+                    #print(Htran.shape,V[:,0].shape,type(V))
+                    Vecs[i,j,k,:] = self.TransitionStrength(V,Htran)
+        return Freq,Vecs
+    
+    #transition strength for same hamiltonians
+    def TransitionStrength(self,V,O):
+        N = np.zeros(self.dim**2,dtype = np.csingle)
+        k=0
+        # for i in range(1,self.dim-1):
+        #     for j in range(i+1,self.dim):
+        for i in range(self.dim):
+            for j in range(self.dim):
+                N[k] = fermiElem(V[:,i],O,V[:,j])
+                k+=1
+        return N.T/(h*1E9)
 
 
 #same as above without loops, mainly as an exercise to the Ben, though offers a substantial speedup for large spins.
@@ -149,5 +196,92 @@ def eachElemFunc(A,B,ax=0,func=np.subtract):
     B = np.repeat(B,dim,axis=ax)
     return func(A,B)
 
+#converts spherical to cartesian coordinates
 def sphereCart(r,theta,phi):
     return r*np.matrix([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)]).T
+
+#converts euler angles to spherical coordinate theta,phi. I think this works in all cases but double check
+def eulerToSphere(angles,str):
+    R =  Rotation.from_euler(str,angles).as_euler('ZYZ')
+    theta = R[1]
+    phi = R[0]
+    return theta,phi
+
+#converts euler angles to spherical theta,phi. More robust performs rotation on zero intialised vector and caluclates coords 
+def eulerToSphereRobust(angles,str):
+    R =  np.asmatrix(Rotation.from_euler(str,angles).as_matrix)
+    u = sphereCart(1,0,0)
+    res = R@u
+    theta = np.arccos(res[2]/1)
+    phi = np.arctan2(res[1],res[0])
+    return theta,phi
+
+#calculates |<i|O|j>|^2, given two eigen vectors, Vi,Vj and a hamiltonian H
+def fermiElem(Vi,O,Vj):
+    E = Vi.H@O@Vj
+    return (E.H@E).item()
+
+#transitions strength for differing energy levels and not assiociated with a hamiltonian
+def TransitionStrength(V1,V2,O,dim):
+    N = np.zeros(int(dim**2),dtype = complex)
+    k=0
+    for i in range(0,dim):
+           for j in range(0,dim):
+             N[k] = fermiElem(V1[:,i],O,V2[:,j])
+             k+=1
+    return N#/(h*1E9)
+
+
+#Runs through a set of frequencies and optionally transition strengths and gets a weight for each output frequency
+#based on the gaussian centered at each true frequency, with amplitude given by the oscilator strengths (1 if these are not provided)
+#and with a supplied width defining line thickness.
+#Parameters are:
+    #- freq- the true frequencies
+    #- Bs -  the magnetic field values
+    #- OS - [optional] the oscillator strengths, they are assumed to be 1 if not provided
+    #- width - the gaussian c factor, relates to line width
+    #- cmap - the colourmap to plot with
+    #- plot - whether to plot or return the values to plot
+    #- title -  the title of the plot
+#returns are:
+    #None- if plot==True
+    #gx,gy,gz- if plot== False, these define the x,y and z/colour information to be plotted
+
+def transitionPixelPlot(freq,Bs,OS=None,frange = None,width=1/10,plot=True,cmap = 'bone',title="Optical Transitions"):
+    #get the frequncy limits based on true range if nothing is provided
+    if type(frange)==NoneType:
+        yi = np.linspace(np.min(freq),np.max(freq),Bs.shape[-1])
+    else:
+        yi=frange
+
+    #initialise our coordinate values
+    gx,gy = np.meshgrid(Bs,yi,indexing='xy')
+    gz = np.zeros((Bs.shape[-1],yi.shape[-1]),dtype=complex)
+    
+    #get number of frequecny values
+    itmax = freq.shape[-1]
+
+    #if we don't provide Oscillator strengths assume 1
+    if type(OS)==NoneType:
+        for out in range(0,Bs.shape[-1]):
+            for it in range(0,itmax):
+                #gz is handled per column but we have to repeat for all true frequencies
+                gz[out,:] = gz[out,:]+np.exp(-1/2*np.power((yi-freq[out,it])/(width),2,dtype=complex),dtype=complex)
+    #otherwise use oscillator strength as amplitude
+    else:
+        for out in range(0,Bs.shape[-1]):
+            for it in range(0,itmax):
+                #gz is handled per column but we have to repeat for all true frequencies, and oscilator strengths
+                gz[out,:] = gz[out,:]+OS[out,it]*np.exp(-1/2*np.power((yi-freq[out,it])/(width),2,dtype=complex),dtype=complex)
+    
+    if plot==True:
+        #plotting stuff
+        plt.pcolor(gx*1E3,gy,1-np.real(gz).T,shading='auto',cmap=cmap,norm=Normalize())
+        plt.xlabel('Magnetic Field strength (mT)')
+        plt.ylabel('Detuning (GHz)')
+        plt.title(title)
+        plt.show()
+        plt.close()
+    else:
+        return gx,gy,1-np.real(gz).T
+
