@@ -11,6 +11,12 @@ muN = 5.05078375e-27 #Nuclear Magneton (Am^2)
 hbar = 1.055E-34 #Reduced planck constant (Js)
 h = 2*np.pi*hbar #Planck constant (Js)
 
+#gaussian distribution a-Amplitude, x-Distribution of x's, m-Center, s- STDEV
+gaussian = lambda a,x,m,s: a*np.exp(np.divide(-np.square(x-m),2*np.square(s)))
+#normalised gaussian, s.t. integral = 1: m-center,s-STDEV
+gaussianNorm = lambda x,m,s: (1/np.sqrt(2*np.pi*np.square(s)))*np.exp(np.divide(-np.square(x-m),2*np.square(s)))
+
+
 NoneType=type(None)
 
 #class containing many parameters for a spin hamiltonian. Ideally it contains H a static hamiltoninan
@@ -26,6 +32,8 @@ class cSpinHamiltonian:
         self.I = spinOperator(I)
 
         self.H =None
+
+        #self.initSweep = lambda thetas,phis,Bs: 
     #Calculates the hyperfine interaction hamiltonian IAS, and adds it to the static hamiltonian
     def hyperfineInteraction(self,A):
         #calculate the hyperfine interaction 
@@ -80,6 +88,9 @@ class cSpinHamiltonian:
         #reshape to be Idim*Edim square matrix
         HZ = HZ.T.reshape(dim,dim)
         HZ = np.kron(HZ,np.eye((self.dim)//dim))
+
+        if type(self.H) is NoneType:
+            self.H=np.empty_like(HZ)
         return HZ
     
     #calculates the electronic Zeeman, basically just fills in correct paramaters
@@ -105,12 +116,29 @@ class cSpinHamiltonian:
         E,V = np.linalg.eigh(H)
         E = -1*np.real(E)
         #May need sorting but eigh should return everything in sorted order
-            #ind = np.argsort(E) #sort E into increasing values of eigen values
-            #V = V[:,ind] # arrange the columns in this order
-            #E = E[ind]
+        ind = np.argsort(E) #sort E into increasing values of eigen values
+        V = V[:,ind] # arrange the columns in this order
+        E = E[ind]
         F = E/(h*1e9)     
         return F,V
 
+    def calcB(self,B,theta,phi,dynamic=None,Vecs = False):
+        #sets the default dynamic term as both electronic and nuclear zeeman
+        if type(dynamic)==NoneType:
+            dynamic=lambda B: self.electronicZeeman(B)-self.nuclearZeeman(B)
+        #convert spherical Magnetic field to cartesian coords.
+        B =sphereCart(B,theta,phi)
+        #Calculate our hamiltonian at this timestep
+        HTemp =self.H+dynamic(B)
+        #get the eigen frequencies at this timestep
+        Freq,V = self.getEigFreq(HTemp)
+        Htran = dynamic(np.matrix([1,0,0]).T)
+        #print(Htran.shape,V[:,0].shape,type(V))
+        OS = self.TransitionStrength(V,Htran)
+        if Vecs==True:
+            return Freq,OS,V
+        else:
+            return Freq,OS
 
     #Loops over a set of magnetic field vectors returning the calculated frequencies
         #Bs- b field magnitude
@@ -129,15 +157,17 @@ class cSpinHamiltonian:
         for i in range(len(thetas)):
             for j in range(len(phis)):
                 for k in range(len(Bs)):
-                    #convert spherical Magnetic field to cartesian coords.
-                    B =sphereCart(Bs[k],thetas[i],phis[j])
-                    #Calculate our hamiltonian at this timestep
-                    HTemp =self.H+dynamic(B)
-                    #get the eigen frequencies at this timestep
-                    Freq[i,j,k,:],V = self.getEigFreq(HTemp)
-                    Htran = dynamic(np.matrix([1,0,0]).T)
-                    #print(Htran.shape,V[:,0].shape,type(V))
-                    Vecs[i,j,k,:] = self.TransitionStrength(V,Htran)
+                    # #convert spherical Magnetic field to cartesian coords.
+                    # B =sphereCart(Bs[k],thetas[i],phis[j])
+                    # #Calculate our hamiltonian at this timestep
+                    # HTemp =self.H+dynamic(B)
+                    # #get the eigen frequencies at this timestep
+                    # Freq[i,j,k,:],V = self.getEigFreq(HTemp)
+                    # Htran = dynamic(np.matrix([1,0,0]).T)
+                    # #print(Htran.shape,V[:,0].shape,type(V))
+                    # Vecs[i,j,k,:] = self.TransitionStrength(V,Htran)
+
+                    Freq[i,j,k,:],Vecs[i,j,k,:]=self.calcB(Bs[k],thetas[i],phis[j],dynamic)
         return Freq,Vecs
     
     #transition strength for same hamiltonians
@@ -152,8 +182,59 @@ class cSpinHamiltonian:
                 k+=1
         return N.T/(h*1E9)
 
+    def curvatureCalculation(self,A,V,F):
 
-#same as above without loops, mainly as an exercise to the Ben, though offers a substantial speedup for large spins.
+        #convert frequency back to energy
+        E=F*h*1E9
+        
+        #split A into its x,y,z elements, and reshape into a dim x dim matrix
+        Hx = self.electronicZeeman(A[:,0])
+        Hy = self.electronicZeeman(A[:,1])
+        Hz = self.electronicZeeman(A[:,2])
+        
+        #single element of partial derivative wrt B, sort of see, example usage for correct form
+        pdB = lambda i,j,H : ((V[:,i].H)@H@V[:,j])/(np.sqrt(np.abs(E[i]-E[j])))
+
+        Nx = np.zeros([self.dim,self.dim],dtype = np.csingle)
+        Ny = np.zeros_like(Nx)
+        Nz = np.zeros_like(Nx)
+
+        for i in range(self.dim):
+            for j in range(self.dim):
+                if i==j or E[i]==E[j]:
+                    continue
+                else:
+                    Nx[i,j] = pdB(i,j,Hx)
+                    Ny[i,j] = pdB(i,j,Hy)
+                    Nz[i,j] = pdB(i,j,Hz)
+        
+        
+        #accounting for the abs(sqrt()) of frequency difference
+        CM1= -1*np.eye(self.dim)
+        CM2 = np.diag([1,1,-1,-1])
+        CM3 = np.diag([1,1,1,-1])
+        CM4 = np.eye(self.dim)
+        
+        #sets up the matrix with elements
+        # S(i,j)=N_i@R@N_j
+        S = lambda R,i: np.matrix([[Nx[i,:]@R@Nx[:,i],Nx[i,:]@R@Ny[:,i],Nx[i,:]@R@Nz[:,i]],[Ny[i,:]@R@Nx[:,i],Ny[i,:]@R@Ny[:,i],Ny[i,:]@R@Nz[:,i]],[Nz[i,:]@R@Nx[:,i],Nz[i,:]@R@Ny[:,i],Nz[i,:]@R@Nz[:,i]]])
+
+        E1 = np.linalg.eigvalsh(S(CM1,0))
+        E2 = np.linalg.eigvalsh(S(CM2,1))
+        E3 = np.linalg.eigvalsh(S(CM3,2))
+        E4 = np.linalg.eigvalsh(S(CM4,3))
+
+        maxabs = lambda E: E[np.abs(E).argmax()]
+        
+        return np.array([maxabs(E1),maxabs(E2),maxabs(E3),maxabs(E4)]).T/(h*1E9)
+
+
+    def initSweep(self,thetas,phis,Bs,fdim = None):
+        if type(fdim)==NoneType:
+            fdim = int(self.dim)
+        return np.zeros((len(thetas),len(phis),len(Bs),fdim),dtype = np.csingle)
+
+#Fast spin operator calculation without loops, mainly as an exercise to the Ben, though offers a substantial speedup for large spins.
 def spinOperator(J,matricies=False):
     dim = int(2*J+1)
 
@@ -223,6 +304,11 @@ def fermiElem(Vi,O,Vj):
 
 #transitions strength for differing energy levels and not assiociated with a hamiltonian
 def TransitionStrength(V1,V2,O,dim):
+    # if V1.ndim<3:
+    #     V1= V1[np.newaxis]
+    # if V2.ndim<3:
+    #     V2= V2[np.newaxis]
+
     N = np.zeros(int(dim**2),dtype = complex)
     k=0
     for i in range(0,dim):
@@ -284,4 +370,48 @@ def transitionPixelPlot(freq,Bs,OS=None,frange = None,width=1/10,plot=True,cmap 
         plt.close()
     else:
         return gx,gy,1-np.real(gz).T
+
+
+#Calculates an absorbtion spectra, by stacking gaussians at each transition
+def absorptionSpectra(freq,FWHM,Os,xs):
+    #calculate the standard deviation from the broadnening FWHM
+    c = FWHM/(2*np.sqrt(2*np.log(2)))
+    #setup the y axis as a zero initialsed of the same type as the x axis
+    a =  np.zeros_like(xs)
+    #run through all our freqs with OS as height f as center, and c as stdev
+    for i,f in enumerate(freq):
+        a+= gaussian(Os[i],xs,f,c)
+    return a
+
+#Calculates and plots the absorbtion spectra for a single magnetic field strength B at angle, theta, phi
+    #S1- State one, i.e. ground
+    #S2 - State two, i.e. excited
+    #B,theta,phi- Magnetic field strength and angle
+    #OS-Transition matrix
+    #Xs- X values
+    #FWHM- inhomogeneous broadinening term.
+    #dyn -  dynamic term of the hamiltonian
+def quickAbsorbtion(S1,S2,B,theta,phi,OS,xs,FWHM,dyn=lambda S,B: S.electronicZeeman(B), print = True):
+    fg,Vg,eVg = S1.calcB(B,theta,phi,dynamic=lambda B:dyn(S1,B),Vecs=True)
+    fe,Ve,eVe = S2.calcB(B,theta,phi,dynamic=lambda B:dyn(S2,B),Vecs=True)
+
+    f = np.real(eachElemFunc(fe,fg))
+    OS = np.real(TransitionStrength(eVg,eVe,OS,S1.dim))
+                
+    A = absorptionSpectra(f,FWHM,OS,xs)
+
+    if print==True:
+
+        plt.plot(xs,A)
+        plt.xlabel('Detuning (GHz)')
+        plt.ylabel('Absorption Coefficient (arb.)')
+        plt.show()
+        fig = plt.gcf()
+        plt.close()
+
+        return fig
+    else:
+        return A
+
+
 
