@@ -182,7 +182,7 @@ class cSpinHamiltonian:
                 k+=1
         return N.T/(h*1E9)
 
-    def curvatureCalculation(self,A,V,F):
+    def curvatureCalculation(self,A,V,F,indiv=False):
 
         #convert frequency back to energy
         E=F*h*1E9
@@ -193,11 +193,13 @@ class cSpinHamiltonian:
         Hz = self.electronicZeeman(A[:,2])
         
         #single element of partial derivative wrt B, sort of see, example usage for correct form
+            #Sqrt accounts for the multiplication of each, and sign accounts for the loss of sign in this
         pdB = lambda i,j,H : ((V[:,i].H)@H@V[:,j])/(np.sqrt(np.abs(E[i]-E[j])))
 
         Nx = np.zeros([self.dim,self.dim],dtype = np.csingle)
         Ny = np.zeros_like(Nx)
         Nz = np.zeros_like(Nx)
+        Sgn = np.ones_like(Nx)
 
         for i in range(self.dim):
             for j in range(self.dim):
@@ -207,27 +209,27 @@ class cSpinHamiltonian:
                     Nx[i,j] = pdB(i,j,Hx)
                     Ny[i,j] = pdB(i,j,Hy)
                     Nz[i,j] = pdB(i,j,Hz)
+                    Sgn[i,j] *= np.sign(E[i]-E[j])
         
-        
-        #accounting for the abs(sqrt()) of frequency difference
-        CM1= -1*np.eye(self.dim)
-        CM2 = np.diag([1,1,-1,-1])
-        CM3 = np.diag([1,1,1,-1])
-        CM4 = np.eye(self.dim)
-        
-        #sets up the matrix with elements
-        # S(i,j)=N_i@R@N_j
-        S = lambda R,i: np.matrix([[Nx[i,:]@R@Nx[:,i],Nx[i,:]@R@Ny[:,i],Nx[i,:]@R@Nz[:,i]],[Ny[i,:]@R@Nx[:,i],Ny[i,:]@R@Ny[:,i],Ny[i,:]@R@Nz[:,i]],[Nz[i,:]@R@Nx[:,i],Nz[i,:]@R@Ny[:,i],Nz[i,:]@R@Nz[:,i]]])
+        #print(Sgn,np.diag(Sgn[:,0]),np.diag(Sgn[0,:]))
+        if indiv:
+            S = lambda A,B,i :(A[i,:]@np.diag(Sgn[:,i])@B[:,i])
+            Es = list()
+            for i in range(self.dim):
+                SMat= np.matrix([[S(Nx,Nx,i),S(Nx,Ny,i),S(Nx,Nz,i)],[S(Ny,Nx,i),S(Ny,Ny,i),S(Ny,Nz,i)],[S(Nz,Nx,i),S(Nz,Ny,i),S(Nz,Nz,i)]])
+                #print(S(Nx,Nx,i),np.sign(Nx))
+                E = np.linalg.eigvalsh(SMat)
+                Es.append(E[np.abs(E).argmax()])
+            return np.array(Es).T/(h*1E9)
+        else:
+            #sets up the matrix with elements
+            # S(i,j)=N_i@N_j     
+            S = lambda A,B :np.trace(A@np.multiply(Sgn,B))
+            SMat= np.matrix([[S(Nx,Nx),S(Nx,Ny),S(Nx,Nz)],[S(Ny,Nx),S(Ny,Ny),S(Ny,Nz)],[S(Nz,Nx),S(Nz,Ny),S(Nz,Nz)]])
 
-        E1 = np.linalg.eigvalsh(S(CM1,0))
-        E2 = np.linalg.eigvalsh(S(CM2,1))
-        E3 = np.linalg.eigvalsh(S(CM3,2))
-        E4 = np.linalg.eigvalsh(S(CM4,3))
-
-        maxabs = lambda E: E[np.abs(E).argmax()]
+            print(SMat)
+            return(SMat/(h*1E9))
         
-        return np.array([maxabs(E1),maxabs(E2),maxabs(E3),maxabs(E4)]).T/(h*1E9)
-
 
     def initSweep(self,thetas,phis,Bs,fdim = None):
         if type(fdim)==NoneType:
