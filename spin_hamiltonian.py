@@ -30,6 +30,7 @@ class cSpinHamiltonian:
 
         self.S = spinOperator(E)
         self.I = spinOperator(I)
+        self.Is = spinOperator(I,matricies=True)
 
         self.H =None
 
@@ -40,7 +41,7 @@ class cSpinHamiltonian:
         self.HHF = (self.I)@A@(self.S).T
         #reshape the hamiltonian to maintain dimension
         self.HHF = self.HyperfineReshape()
-
+        
         #if this is the first static parameter we calculate set the hamiltonian to it,
         #otherwise add it to the hamiltonian
         if type(self.H) is NoneType:
@@ -50,11 +51,31 @@ class cSpinHamiltonian:
         return self.HHF
 
     #calculate the quadrapole interaction IQI
-    def quadrupoleInteraction(self,Q):
+    def quadrupoleInteractionAlt(self,Q):
         #calculate and reshape our hyperfine term
         self.HQP = (self.I)@Q@(self.I).T
-        self.HQP = self.HyperfineReshape(self.HQP)
-
+        H=0
+        print(self.HQP.shape,self.HQP.shape)
+        for i in range(self.HQP.shape[0]):
+            H+=self.HQP[i,:].reshape((self.Idim,self.Idim))
+        #self.HQP = self.HyperfineReshape(self.HQP)
+        self.HQP=H
+        #if we haven't initialised the static hamiltonian set it to the quadrupole
+        #otherwise add the quadrupol term
+        if type(self.H) is NoneType:
+            self.H=self.HQP
+        else:
+            self.H+=self.HQP
+        return self.HQP
+    #slightly less effecient, using operator form.
+    def quadrupoleInteraction(self,Q):
+        Ispin = (self.Idim-1)/2
+        Is = spinOperator(Ispin,matricies=True)
+        H= 0
+        for i in range(3):
+            for j in range(3):
+                H+=Q[i,j]*Is[i]@Is[j]
+        self.HQP=H
         #if we haven't initialised the static hamiltonian set it to the quadrupole
         #otherwise add the quadrupol term
         if type(self.H) is NoneType:
@@ -64,15 +85,24 @@ class cSpinHamiltonian:
         return self.HQP
 
 
+
     #reshape the hamiltonian to maintain to be Edim*Idim by Edim*Idim
     def HyperfineReshape(self,H=None):
         Idim = self.Idim
+        #print("Pre:",H.shape)
+        #print(H)
+        #print(Idim)
         if type(H) is NoneType:
             H = self.HHF
         a=H[:,0].reshape((Idim,Idim))
         b=H[:,1].reshape((Idim,Idim))
         c=H[:,2].reshape((Idim,Idim))
         d=H[:,3].reshape((Idim,Idim))
+        if self.Edim==1:
+            return a
+            #return np.matrix(np.diag(H)).reshape(Idim,Idim)
+        #print("Post:",2*a.shape)
+        #print(np.block([[a,b.T],[c.T,d]]))
         return np.block([[a,b.T],[c.T,d]])
 
 
@@ -86,11 +116,12 @@ class cSpinHamiltonian:
     def zeemanInteraction(self,mu,B,g,S,dim):
         HZ = mu*B.T@g@S.T
         #reshape to be Idim*Edim square matrix
+        #print(HZ.shape)
         HZ = HZ.T.reshape(dim,dim)
         HZ = np.kron(HZ,np.eye((self.dim)//dim))
-
+        #print(HZ.shape)
         if type(self.H) is NoneType:
-            self.H=np.empty_like(HZ)
+            self.H=np.zeros_like(HZ)
         return HZ
     
     #calculates the electronic Zeeman, basically just fills in correct paramaters
@@ -182,15 +213,34 @@ class cSpinHamiltonian:
                 k+=1
         return N.T/(h*1E9)
 
-    def curvatureCalculation(self,A,V,F,indiv=False):
+    
+   
+    #transition strength for same hamiltonians
+    def firstOrderSensitivity(self,V,A):
+        N = np.zeros(self.dim,dtype = np.csingle)
+        k=0
+        for i in range(self.dim):
+            N[k] = ((V[:,i].H)@A@V[:,i])
+            k+=1
+        return N.T/(h*1E9)
+
+    def curvatureCalculationAlt(self,A,Bp,V,F,indiv=False):
 
         #convert frequency back to energy
         E=F*h*1E9
         
         #split A into its x,y,z elements, and reshape into a dim x dim matrix
-        Hx = self.electronicZeeman(A[:,0])
-        Hy = self.electronicZeeman(A[:,1])
-        Hz = self.electronicZeeman(A[:,2])
+        Hx = A(Bp[:,0])
+        Hy = A(Bp[:,1])
+        Hz = A(Bp[:,2])
+        
+        return self.curvatureCalculation(Hx,Hy,Hz,V,F,indiv=indiv)
+
+        
+    #overload of above with seperated Hx,Hy and Hz elements
+    def curvatureCalculation(self,Hx,Hy,Hz,V,F,indiv=False):
+        #convert frequency back to energy
+        E=F#*h*1E9
         
         #single element of partial derivative wrt B, sort of see, example usage for correct form
             #Sqrt accounts for the multiplication of each, and sign accounts for the loss of sign in this
@@ -209,7 +259,7 @@ class cSpinHamiltonian:
                     Nx[i,j] = pdB(i,j,Hx)
                     Ny[i,j] = pdB(i,j,Hy)
                     Nz[i,j] = pdB(i,j,Hz)
-                    Sgn[i,j] *= np.sign(E[i]-E[j])
+                    Sgn[i,j] = np.sign(E[i]-E[j])
         
         #print(Sgn,np.diag(Sgn[:,0]),np.diag(Sgn[0,:]))
         if indiv:
@@ -227,8 +277,9 @@ class cSpinHamiltonian:
             S = lambda A,B :np.trace(A@np.multiply(Sgn,B))
             SMat= np.matrix([[S(Nx,Nx),S(Nx,Ny),S(Nx,Nz)],[S(Ny,Nx),S(Ny,Ny),S(Ny,Nz)],[S(Nz,Nx),S(Nz,Ny),S(Nz,Nz)]])
 
-            print(SMat)
-            return(SMat/(h*1E9))
+            #print(SMat)
+            return SMat
+            #return(SMat/(h*1E9))
         
 
     def initSweep(self,thetas,phis,Bs,fdim = None):
@@ -415,5 +466,43 @@ def quickAbsorbtion(S1,S2,B,theta,phi,OS,xs,FWHM,dyn=lambda S,B: S.electronicZee
     else:
         return A
 
+#Generates the x,y,z A maticies of the form A*j, I.e. M*I for nuclear zeeman
+def genAMatrix(A,J):
+    Ar=[]
+    for j in range(3):
+        Ap=0
+        for i in range(3):
+            Ap+=A[j,i]*J[i]
+        Ar.append(Ap)
+    return Ar
 
 
+#returns a spin operator or all spin matricies for a given spin J
+def spinOperatorOld(J,matricies = False):
+    kdelta = lambda a,b: int(a==b)
+    dim = int(2*J+1)
+
+    Jx = np.zeros([dim,dim],dtype=np.csingle)
+    Jy = np.full_like(Jx,0)
+    Jz = np.full_like(Jx,0)
+
+
+    for i in range(dim):
+        for j in range(dim):
+
+            #fixes mismatch between python zero indexing and spin matrix 1 start
+            a = i+1
+            b = j+1
+            
+            #calculates spin matricies based purely on indicies
+            Jx[i,j] = (1/2)*(kdelta(a,b+1)+kdelta(a+1,b))*np.emath.sqrt((J+1)*(a+b-1)-a*b)
+            Jy[i,j] = (1j/2)*(kdelta(a,b+1)-kdelta(a+1,b))*np.emath.sqrt((J+1)*(a+b-1)-a*b)
+            Jz[i,j] = (J+1-a)*kdelta(a,b)
+    
+    if matricies==True:
+        return Jx,Jy,Jz
+    else:
+        #return an x by 3 matrix where each column is, the matrix elements of each spin matrix
+        S = hstack((Jx.reshape((-1,1)),Jy.reshape((-1,1)),-Jz.reshape((-1,1))))
+        return S
+    return S,Jx,Jy,Jz
