@@ -5,6 +5,8 @@ from numpy.core.shape_base import hstack
 from scipy.spatial.transform import Rotation
 from scipy.linalg import eig
 from matplotlib.colors import Normalize
+from numpy_indexed import group_by
+
 
 muB = 9.27400968e-24 #Bohr Magneton (Am^2)
 muN = 5.05078375e-27 #Nuclear Magneton (Am^2)
@@ -67,7 +69,7 @@ class cSpinHamiltonian:
         else:
             self.H+=self.HQP
         return self.HQP
-    #slightly less effecient, using operator form.
+    #slightly less effecient?, using operator form.
     def quadrupoleInteraction(self,Q):
         Ispin = (self.Idim-1)/2
         Is = spinOperator(Ispin,matricies=True)
@@ -246,11 +248,9 @@ class cSpinHamiltonian:
         N = N.reshape(self.dim**2)
         return N.T/(h*1E9)
 
+    #alternative curvature calculations that, calculates the H matricies given, a function A, and a pertubation matrix Bp
     def curvatureCalculationAlt(self,A,Bp,V,F,indiv=False):
 
-        #convert frequency back to energy
-        E=F#*h*1E9
-        
         #split A into its x,y,z elements, and reshape into a dim x dim matrix
         Hx = A(Bp[:,0])
         Hy = A(Bp[:,1])
@@ -260,7 +260,7 @@ class cSpinHamiltonian:
 
         
     #overload of above with seperated Hx,Hy and Hz elements
-    def curvatureCalculation(self,Hx,Hy,Hz,V,F,indiv=False,tran=False):
+    def curvatureCalculation(self,Hx,Hy,Hz,V,F,indiv=True,eig=True):
         #convert frequency back to energy, alternatively we could convert our eigenvectors to be frequencies but this
         # seems to cause numerical error issues
         E=F*h*1E9
@@ -277,28 +277,27 @@ class cSpinHamiltonian:
 
         for i in range(self.dim):
             for j in range(self.dim):
+                #ignore diagonal or degenerate values 
                 if i==j or E[i]==E[j]:
                     continue
                 else:
+                    #calculate all our Ni, and our sign 
                     Nx[i,j] = pdB(i,j,Hx)
                     Ny[i,j] = pdB(i,j,Hy)
                     Nz[i,j] = pdB(i,j,Hz)
                     Sgn[i,j] = np.sign(E[i]-E[j])
         
-        #print(Sgn,np.diag(Sgn[:,0]),np.diag(Sgn[0,:]))
-        if indiv and not tran:
+        #flag if we want our individual transition sensitivity
+        if indiv:
+            #setup our funciton, each transition will be associated with one of the diagonals of Ni*Nj
             S = lambda A,B,i :(A[i,:]@np.diag(Sgn[:,i])@B[:,i])
-            Es = list()
+            Es = []
             for i in range(self.dim):
                 SMat= np.matrix([[S(Nx,Nx,i),S(Nx,Ny,i),S(Nx,Nz,i)],[S(Ny,Nx,i),S(Ny,Ny,i),S(Ny,Nz,i)],[S(Nz,Nx,i),S(Nz,Ny,i),S(Nz,Nz,i)]])
-                #print(S(Nx,Nx,i),np.sign(Nx))
+                #calculate the largest eigen values as a single number proxy to the 
                 E = np.linalg.eigvalsh(SMat)
                 Es.append(E[np.abs(E).argmax()])
             return np.array(Es).T/(h*1E9)
-        if indiv and tran:
-            for i in range(self.dim):
-                for j in range(self.dim):
-                    pass
         else:
             #sets up the matrix with elements
             # S(i,j)=N_i@N_j     
@@ -354,7 +353,13 @@ def tensorRotation(A,angles,str='ZYX'):
 #
 def eachElemFunc(A,B,ax=0,func=np.subtract):
     dim = (A.shape[ax])
-    A = np.tile(A,dim)
+    
+    #tile takes a tuple of axis to tile across, we want to make sure only ax is non-one
+    tdim = np.ones(len(B.shape))
+    tdim[ax]*=dim
+    tdim = tuple(tdim.astype(int))
+    
+    A = np.tile(A,tdim)
     B = np.repeat(B,dim,axis=ax)
     return func(A,B)
 
@@ -534,3 +539,23 @@ def spinOperatorOld(J,matricies = False):
         S = hstack((Jx.reshape((-1,1)),Jy.reshape((-1,1)),-Jz.reshape((-1,1))))
         return S
     return S,Jx,Jy,Jz
+
+
+#returns the index of Zefoz points of a dataset A
+def ZEFOZidx(A,ax=2):
+    #selects out all zero crossings along the given axis
+    id = zero_crossings(A,ax)
+    
+    #groups the ids by the first four indicies, (theta,phi,B,transition),
+    #and calculates the sum of the fifth axis (x,y,z), where the +1 accounts for the discrepency of x being missing or a crossing
+    x_u,y_s = group_by(id[:,0:4]).sum(id[:,4]+1)
+    
+    #if the above sum is 6, i.e. zero crossing present in x,y,z, consider this  a ZEFOZ point.
+    zf = np.argwhere(y_s==6)
+    #select the remaining indexes where these zefoz point appear
+    id = x_u[zf[:,0],:]
+    return id
+
+
+#Locates zero crossings in a along the specified axis ax
+zero_crossings =lambda a,ax: np.argwhere(np.diff(np.sign(a),axis=ax))
