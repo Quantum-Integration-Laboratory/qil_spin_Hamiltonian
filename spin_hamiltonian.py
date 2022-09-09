@@ -57,7 +57,7 @@ class cSpinHamiltonian:
         H=0
         print(self.HQP.shape,self.HQP.shape)
         for i in range(self.HQP.shape[0]):
-            H+=self.HQP[i,:].reshape((self.Idim,self.Idim))
+            H+=self.HQP[i,:].reshape((self.Edim,self.Idim))
         #self.HQP = self.HyperfineReshape(self.HQP)
         self.HQP=H
         #if we haven't initialised the static hamiltonian set it to the quadrupole
@@ -145,11 +145,17 @@ class cSpinHamiltonian:
         if H is None:
             H=self.H      
         E,V = np.linalg.eigh(H)
-        E = -1*np.real(E)
         #May need sorting but eigh should return everything in sorted order
         ind = np.argsort(E) #sort E into increasing values of eigen values
         V = V[:,ind] # arrange the columns in this order
         E = E[ind]
+        E = -1*np.real(E)
+        #print(np.sign((V[0,:])))
+        #print("Before: ",np.sign(V[:,0:3]))
+        
+        #enforce that all eigenvectors should start with a positive value
+        V  = np.multiply(np.sign(V[0,:]),V)
+        #print("After",np.sign(V[:,0:3]))
         F = E/(h*1e9)     
         return F,V
 
@@ -216,18 +222,34 @@ class cSpinHamiltonian:
     
    
     #transition strength for same hamiltonians
-    def firstOrderSensitivity(self,V,A):
+    def firstOrderEnergySensitivity(self,V,A):
         N = np.zeros(self.dim,dtype = np.csingle)
         k=0
         for i in range(self.dim):
             N[k] = ((V[:,i].H)@A@V[:,i])
             k+=1
         return N.T/(h*1E9)
+    #transition strength for same hamiltonians
+    def firstOrderSensitivity(self,V,A):
+        #N = np.zeros(self.dim**2,dtype = np.csingle)
+        N = np.zeros((self.dim,self.dim),dtype = np.csingle)
+        k=0
+        for i in range(self.dim):
+            for j in range(self.dim):
+                if i==j:
+                    #k+=1
+                    continue
+                #N[k] = ((V[:,i].H)@A@V[:,j])
+                N[i,j] = ((V[:,i].H)@A@V[:,j])
+                #k+=1
+        #print(N)
+        N = N.reshape(self.dim**2)
+        return N.T/(h*1E9)
 
     def curvatureCalculationAlt(self,A,Bp,V,F,indiv=False):
 
         #convert frequency back to energy
-        E=F*h*1E9
+        E=F#*h*1E9
         
         #split A into its x,y,z elements, and reshape into a dim x dim matrix
         Hx = A(Bp[:,0])
@@ -238,9 +260,11 @@ class cSpinHamiltonian:
 
         
     #overload of above with seperated Hx,Hy and Hz elements
-    def curvatureCalculation(self,Hx,Hy,Hz,V,F,indiv=False):
-        #convert frequency back to energy
-        E=F#*h*1E9
+    def curvatureCalculation(self,Hx,Hy,Hz,V,F,indiv=False,tran=False):
+        #convert frequency back to energy, alternatively we could convert our eigenvectors to be frequencies but this
+        # seems to cause numerical error issues
+        E=F*h*1E9
+        #V/=h*1E9
         
         #single element of partial derivative wrt B, sort of see, example usage for correct form
             #Sqrt accounts for the multiplication of each, and sign accounts for the loss of sign in this
@@ -262,7 +286,7 @@ class cSpinHamiltonian:
                     Sgn[i,j] = np.sign(E[i]-E[j])
         
         #print(Sgn,np.diag(Sgn[:,0]),np.diag(Sgn[0,:]))
-        if indiv:
+        if indiv and not tran:
             S = lambda A,B,i :(A[i,:]@np.diag(Sgn[:,i])@B[:,i])
             Es = list()
             for i in range(self.dim):
@@ -271,6 +295,10 @@ class cSpinHamiltonian:
                 E = np.linalg.eigvalsh(SMat)
                 Es.append(E[np.abs(E).argmax()])
             return np.array(Es).T/(h*1E9)
+        if indiv and tran:
+            for i in range(self.dim):
+                for j in range(self.dim):
+                    pass
         else:
             #sets up the matrix with elements
             # S(i,j)=N_i@N_j     
@@ -278,8 +306,8 @@ class cSpinHamiltonian:
             SMat= np.matrix([[S(Nx,Nx),S(Nx,Ny),S(Nx,Nz)],[S(Ny,Nx),S(Ny,Ny),S(Ny,Nz)],[S(Nz,Nx),S(Nz,Ny),S(Nz,Nz)]])
 
             #print(SMat)
-            return SMat
-            #return(SMat/(h*1E9))
+            #return SMat
+            return(SMat/(h*1E9))
         
 
     def initSweep(self,thetas,phis,Bs,fdim = None):
