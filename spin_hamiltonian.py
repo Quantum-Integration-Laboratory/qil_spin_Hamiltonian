@@ -28,7 +28,7 @@ class cSpinHamiltonian:
         #Sets up electronic and nuclear spin operators and initialises empty static hamiltonian
         self.Edim = int(2*E+1)
         self.Idim = int(2*I+1)
-        self.dim = self.Edim*self.Idim
+        self.dim = int(self.Edim*self.Idim)
 
         self.S = spinOperator(E)
         self.I = spinOperator(I)
@@ -211,52 +211,66 @@ class cSpinHamiltonian:
     
     #transition strength for same hamiltonians
     def TransitionStrength(self,V,O):
-        N = np.zeros(self.dim**2,dtype = np.csingle)
-        k=0
-        # for i in range(1,self.dim-1):
-        #     for j in range(i+1,self.dim):
-        for i in range(self.dim):
-            for j in range(self.dim):
-                N[k] = fermiElem(V[:,i],O,V[:,j])
-                k+=1
-        return N.T/(h*1E9)
+        N = np.zeros((self.dim,self.dim),dtype = np.csingle)
+        #generate the 0 to dim array
+        a = np.arange(0,self.dim,dtype = np.int)
+        #get each matrix element as vectors
+        b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
+        a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
+        N=V[:,a].H@O@V[:,b]
+        N=N.H@N
+        # N = np.zeros(self.dim**2,dtype = np.csingle)
+        # k=0
+        # # for i in range(1,self.dim-1):
+        # #     for j in range(i+1,self.dim):
+        # for i in range(self.dim):
+        #     for j in range(self.dim):
+        #         N[k] = fermiElem(V[:,i],O,V[:,j])
+        #         k+=1
+        return N.T#/(h*1E9)
 
     
    
     #transition strength for same hamiltonians
     def firstOrderEnergySensitivity(self,V,A):
-        N = np.zeros(self.dim,dtype = np.csingle)
-        k=0
-        for i in range(self.dim):
-            N[k] = ((V[:,i].H)@A@V[:,i])
-            k+=1
+        #N = np.zeros(self.dim,dtype = np.csingle)
+        i = np.arange(self.dim)
+        func = lambda i : np.diag((V[:,i].H)@A@V[:,i])
+        N = func(i)
         return N.T/(h*1E9)
+
     #transition strength for same hamiltonians
     def firstOrderSensitivity(self,V,A):
         #N = np.zeros(self.dim**2,dtype = np.csingle)
         N = np.zeros((self.dim,self.dim),dtype = np.csingle)
-        k=0
-        for i in range(self.dim):
-            for j in range(self.dim):
-                if i==j:
-                    #k+=1
-                    continue
-                #N[k] = ((V[:,i].H)@A@V[:,j])
-                N[i,j] = ((V[:,i].H)@A@V[:,j])
-                #k+=1
+        #generate the 0 to dim array
+        a = np.arange(0,self.dim,dtype = np.int)
+        #get each matrix element as vectors
+        b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
+        a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
+        N=((V[:,a].H)@A@V[:,b])
+
+        # for i in range(self.dim):
+        #     for j in range(self.dim):
+        #         if i==j:
+        #             #k+=1
+        #             continue
+        #         #N[k] = ((V[:,i].H)@A@V[:,j])
+        #         N[i,j] = ((V[:,i].H)@A@V[:,j])
+        #         #k+=1
         #print(N)
-        N = N.reshape(self.dim**2)
+        #N = N.reshape(self.dim**2)
         return N.T/(h*1E9)
 
     #alternative curvature calculations that, calculates the H matricies given, a function A, and a pertubation matrix Bp
     def curvatureCalculationAlt(self,A,Bp,V,F,indiv=False):
-
-        #split A into its x,y,z elements, and reshape into a dim x dim matrix
-        Hx = A(Bp[:,0])
-        Hy = A(Bp[:,1])
-        Hz = A(Bp[:,2])
-        
-        return self.curvatureCalculation(Hx,Hy,Hz,V,F,indiv=indiv)
+        with np.errstate(divide='ignore'):
+            #split A into its x,y,z elements, and reshape into a dim x dim matrix
+            Hx = A(Bp[:,0])
+            Hy = A(Bp[:,1])
+            Hz = A(Bp[:,2])
+            
+            return self.curvatureCalculation(Hx,Hy,Hz,V,F,indiv=indiv)
 
         
     #overload of above with seperated Hx,Hy and Hz elements
@@ -269,23 +283,22 @@ class cSpinHamiltonian:
         #single element of partial derivative wrt B, sort of see, example usage for correct form
             #Sqrt accounts for the multiplication of each, and sign accounts for the loss of sign in this
         pdB = lambda i,j,H : ((V[:,i].H)@H@V[:,j])/(np.sqrt(np.abs(E[i]-E[j])))
+        pdBv = lambda i,j,H: np.diag(np.nan_to_num(pdB(i,j,H),0)).reshape((self.dim,self.dim))
+       
+        #generate the 0 to dim array
+        a = np.arange(0,self.dim,dtype = np.int)
+        #get each matrix element as vectors
+        b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
+        a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
+        
+        
+       # print("test")
 
-        Nx = np.zeros([self.dim,self.dim],dtype = np.csingle)
-        Ny = np.zeros_like(Nx)
-        Nz = np.zeros_like(Nx)
-        Sgn = np.ones_like(Nx)
-
-        for i in range(self.dim):
-            for j in range(self.dim):
-                #ignore diagonal or degenerate values 
-                if i==j or E[i]==E[j]:
-                    continue
-                else:
-                    #calculate all our Ni, and our sign 
-                    Nx[i,j] = pdB(i,j,Hx)
-                    Ny[i,j] = pdB(i,j,Hy)
-                    Nz[i,j] = pdB(i,j,Hz)
-                    Sgn[i,j] = np.sign(E[i]-E[j])
+        Nx = pdBv(a,b,Hx)
+        #print(Nx.shape,Nx[0,:])
+        Ny = pdBv(a,b,Hy)
+        Nz = pdBv(a,b,Hz)
+        Sgn = np.sign(E[a]-E[b]).reshape(self.dim,self.dim)
         
         #flag if we want our individual transition sensitivity
         if indiv:
@@ -307,7 +320,43 @@ class cSpinHamiltonian:
             #print(SMat)
             #return SMat
             return(SMat/(h*1E9))
-        
+    def curvatureCalculationNaive(self,A,Bp,V,F,indiv=True,eig=True): 
+        #there is known divide by zeros which we ignore
+        with np.errstate(divide='ignore'):
+            #split A into its x,y,z elements, and reshape into a dim x dim matrix
+            Hx = A(Bp[:,0])
+            Hy = A(Bp[:,1])
+            Hz = A(Bp[:,2])
+            
+            
+            #a = np.arange(0,self.dim,dtype = np.int)
+            
+            E=F*h*1E9   
+            #             /(E[n]-E)
+            pdb=lambda A,B,n: np.trace(np.nan_to_num(((V.H)@A@V[:,n])@((V[:,n].H)@B@V),posinf=0,nan=0,neginf=0))
+            Ed = np.nan_to_num(1/eachElemFunc(E,E).reshape(self.dim,self.dim),posinf=0,nan=0,neginf=0)
+            pdbn=lambda A,B: np.nan_to_num((((V.H)@A@V)@((V.H)@B@V)@Ed),posinf=0,nan=0,neginf=0)
+            #print("EMat",Ed)
+            #print("E[0]",E[0]-E)
+
+            # pdB = lambda i,j,H : ((V[:,i].H)@H@V[:,j])/(np.sqrt(np.abs(E[i]-E[j])))
+            # pdBa = lambda i,j,H: np.diag(np.nan_to_num(pdB(i,j,H),0)).reshape((self.dim,self.dim))
+            
+            #print(np.diag(np.dot(pdbn(Hx,Hx),Ed)))
+            print(np.sum(pdbn(Hx,Hx),axis=1))
+
+            Es = []
+            for i in range(self.dim):
+                print((pdb(Hx,Hx,i))/np.sum(E[i]-E))
+                SMat= np.matrix([[pdb(Hx,Hx,i),pdb(Hx,Hy,i),pdb(Hx,Hz,i)],[pdb(Hy,Hx,i),pdb(Hy,Hy,i),pdb(Hy,Hz,i)],[pdb(Hz,Hx,i),pdb(Hz,Hy,i),pdb(Hz,Hz,i)]])
+                #calculate the largest eigen values as a single number proxy to the 
+                Evals = np.linalg.eigvalsh(SMat)
+                Es.append(Evals[np.abs(Evals).argmax()])
+            return np.array(Es).T/(h*1E9)        
+        #print("pdbxx",pdB(0,1,Hx).shape)
+            
+            #SMat= np.matrix([[pdb(Hx,Hx),pdb(Hx,Hx),S(Nx,Nz)],[S(Ny,Nx),S(Ny,Ny),S(Ny,Nz)],[S(Nz,Nx),S(Nz,Ny),S(Nz,Nz)]])
+
 
     def initSweep(self,thetas,phis,Bs,fdim = None):
         if type(fdim)==NoneType:
@@ -365,8 +414,13 @@ def eachElemFunc(A,B,ax=0,func=np.subtract):
 
 #converts spherical to cartesian coordinates
 def sphereCart(r,theta,phi):
-    return r*np.matrix([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)]).T
+    #return r*np.matrix([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)]).T
+    return r*Rotation.from_euler('yz',[theta,phi]).as_matrix()@np.matrix([0,0,1]).T
 
+#returns the unit vector from the given spherical coords theta,phi
+def sphereUnit(vals):
+    RM = Rotation.from_euler('yz',vals).as_matrix()
+    return RM@np.matrix([0,0,1]).T
 #converts euler angles to spherical coordinate theta,phi. I think this works in all cases but double check
 def eulerToSphere(angles,str):
     R =  Rotation.from_euler(str,angles).as_euler('ZYZ')
@@ -394,14 +448,14 @@ def TransitionStrength(V1,V2,O,dim):
     #     V1= V1[np.newaxis]
     # if V2.ndim<3:
     #     V2= V2[np.newaxis]
-
+    
     N = np.zeros(int(dim**2),dtype = complex)
     k=0
     for i in range(0,dim):
            for j in range(0,dim):
              N[k] = fermiElem(V1[:,i],O,V2[:,j])
              k+=1
-    return N#/(h*1E9)
+    return N.T#np.diag(N)#/(h*1E9)
 
 
 #Runs through a set of frequencies and optionally transition strengths and gets a weight for each output frequency
@@ -542,16 +596,31 @@ def spinOperatorOld(J,matricies = False):
 
 
 #returns the index of Zefoz points of a dataset A
-def ZEFOZidx(A,ax=2):
+def ZEFOZidx(A,ax=0):
     #selects out all zero crossings along the given axis
-    id = zero_crossings(A,ax)
+    idx = zero_crossings(A,0)
+    idy = zero_crossings(A,1)
+    idz = zero_crossings(A,2)
+
+    idx = idx[np.where(idx[:,4]==0)]
+    idy = idy[np.where(idy[:,4]==1)]
+    idz = idz[np.where(idz[:,4]==2)]
     
+    #print(idx.shape,idy.shape)
+    id = np.vstack([idx,idy])
+    #print(id)
     #groups the ids by the first four indicies, (theta,phi,B,transition),
     #and calculates the sum of the fifth axis (x,y,z), where the +1 accounts for the discrepency of x being missing or a crossing
-    x_u,y_s = group_by(id[:,0:4]).sum(id[:,4]+1)
+    #x_u,y_s = group_by(id[:,0:4]).sum(id[:,4]+1)
     
+    #print(id)
+    x_u,i_s,y_s=np.unique(id[:,0:4],axis=0,return_counts=True,return_index=True)
+    
+    
+    #print(id)
     #if the above sum is 6, i.e. zero crossing present in x,y,z, consider this  a ZEFOZ point.
-    zf = np.argwhere(y_s==6)
+    zf = np.argwhere(y_s==2)
+    
     #select the remaining indexes where these zefoz point appear
     id = x_u[zf[:,0],:]
     return id
