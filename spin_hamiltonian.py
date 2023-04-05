@@ -35,6 +35,10 @@ class cSpinHamiltonian:
         self.Is = spinOperator(I,matricies=True)
 
         self.H =None
+        
+        self.M=None
+        self.gE=None
+        self.gN=None
 
         #self.initSweep = lambda thetas,phis,Bs: 
     #Calculates the hyperfine interaction hamiltonian IAS, and adds it to the static hamiltonian
@@ -113,6 +117,8 @@ class cSpinHamiltonian:
         self.gE= g
     def setgN(self,g):
         self.gN= g
+    def setM(self,M):
+        self.M = M
 
     #Calculate the zeeman interaction of the form muBgS, allowing for the same function to do nuclear and electronic
     def zeemanInteraction(self,mu,B,g,S,dim):
@@ -138,7 +144,10 @@ class cSpinHamiltonian:
     def nuclearZeeman(self,B,g=None):
         if type(g) is not NoneType:
             self.setgN(g)
-        self.HZN = self.zeemanInteraction(muN,B,self.gN,self.I,self.Idim)
+        if type(self.M) is not NoneType and type(self.gN) is NoneType:
+            self.HZN = self.zeemanInteraction(1,B,self.M,self.I,self.Idim)
+        else:    
+            self.HZN = self.zeemanInteraction(muN,B,self.gN,self.I,self.Idim)
         return self.HZN
 
     #gets eigen energies as frequencies
@@ -148,15 +157,15 @@ class cSpinHamiltonian:
             H=self.H      
         E,V = np.linalg.eigh(H)
         #May need sorting but eigh should return everything in sorted order
-        ind = np.argsort(E) #sort E into increasing values of eigen values
-        V = V[:,ind] # arrange the columns in this order
-        E = E[ind]
+        #ind = np.argsort(E) #sort E into increasing values of eigen values
+        #V = V[:,ind] # arrange the columns in this order
+        #E = E[ind]
         E = -1*np.real(E)
         #print(np.sign((V[0,:])))
         #print("Before: ",np.sign(V[:,0:3]))
         
         #enforce that all eigenvectors should start with a positive value
-        V  = np.multiply(np.sign(V[0,:]),V)
+        #V  = np.multiply(np.sign(V[0,:]),V)
         #print("After",np.sign(V[:,0:3]))
         F = E/(h*1e9)     
         return F,V
@@ -233,22 +242,25 @@ class cSpinHamiltonian:
    
     #transition strength for same hamiltonians
     def firstOrderEnergySensitivity(self,V,A):
-        #N = np.zeros(self.dim,dtype = np.csingle)
-        i = np.arange(self.dim)
-        func = lambda i : np.diag((V[:,i].H)@A@V[:,i])
-        N = func(i)
+        N = np.diag(V.H@A@V)
         return N.T/(h*1E9)
 
     #transition strength for same hamiltonians
     def firstOrderSensitivity(self,V,A):
-        #N = np.zeros(self.dim**2,dtype = np.csingle)
-        N = np.zeros((self.dim,self.dim),dtype = np.csingle)
-        #generate the 0 to dim array
-        a = np.arange(0,self.dim,dtype = np.int)
-        #get each matrix element as vectors
-        b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
-        a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
-        N=((V[:,a].H)@A@V[:,b])
+        # #N = np.zeros(self.dim**2,dtype = np.csingle)
+        # N = np.zeros((self.dim,self.dim),dtype = np.csingle)
+        # #generate the 0 to dim array
+        # a = np.arange(0,self.dim,dtype = np.int)
+        # #get each matrix element as vectors
+        # b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
+        # a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
+        # N=((V[:,a].H)@A@V[:,b])
+        # print(N)
+
+        N = V.H@A@V
+        N = np.squeeze(np.asarray(N.reshape(self.dim**2)))
+        #alt = np.power(np.abs(alt),2)
+        #print(alt)
 
         # for i in range(self.dim):
         #     for j in range(self.dim):
@@ -281,10 +293,9 @@ class cSpinHamiltonian:
         #V/=h*1E9
         
         #single element of partial derivative wrt B, sort of see, example usage for correct form
-            #Sqrt accounts for the multiplication of each, and sign accounts for the loss of sign in this
-        pdB = lambda i,j,H : ((V[:,i].H)@H@V[:,j])/(np.sqrt(np.abs(E[i]-E[j])))
-        pdBv = lambda i,j,H: np.diag(np.nan_to_num(pdB(i,j,H),0)).reshape((self.dim,self.dim))
-       
+        pdBv = lambda i,j,H: np.diag(((V[:,i].H)@H@V[:,j])).reshape((self.dim,self.dim))
+
+
         #generate the 0 to dim array
         a = np.arange(0,self.dim,dtype = np.int)
         #get each matrix element as vectors
@@ -292,50 +303,43 @@ class cSpinHamiltonian:
         a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
         
         
-       # print("test")
-
+       
         Nx = pdBv(a,b,Hx)
-        #print(Nx.shape,Nx[0,:])
         Ny = pdBv(a,b,Hy)
         Nz = pdBv(a,b,Hz)
-        Sgn = np.sign(E[a]-E[b]).reshape(self.dim,self.dim)
+        Sgn =np.nan_to_num(1/(E[a]-E[b]).reshape(self.dim,self.dim),posinf=0,nan=0,neginf=0)
         
-        #flag if we want our individual transition sensitivity
-        if indiv:
-            #setup our funciton, each transition will be associated with one of the diagonals of Ni*Nj
-            S = lambda A,B,i :(A[i,:]@np.diag(Sgn[:,i])@B[:,i])
-            Es = []
-            for i in range(self.dim):
-                SMat= np.matrix([[S(Nx,Nx,i),S(Nx,Ny,i),S(Nx,Nz,i)],[S(Ny,Nx,i),S(Ny,Ny,i),S(Ny,Nz,i)],[S(Nz,Nx,i),S(Nz,Ny,i),S(Nz,Nz,i)]])
+        #setup our funciton, each transition will be associated with one of the diagonals of Ni*Nj
+        S = lambda A,B,i : (A[i,:]@np.diag(Sgn[:,i])@B[:,i])
+        #print(S(Nx,Nx,c))
+        
+        Es = []
+        for i in range(self.dim):
+            SMat= np.matrix([[S(Nx,Nx,i),S(Nx,Ny,i),S(Nx,Nz,i)],[S(Ny,Nx,i),S(Ny,Ny,i),S(Ny,Nz,i)],[S(Nz,Nx,i),S(Nz,Ny,i),S(Nz,Nz,i)]])
+            if indiv:            
                 #calculate the largest eigen values as a single number proxy to the 
                 E = np.linalg.eigvalsh(SMat)
                 Es.append(E[np.abs(E).argmax()])
-            return np.array(Es).T/(h*1E9)
-        else:
-            #sets up the matrix with elements
-            # S(i,j)=N_i@N_j     
-            S = lambda A,B :np.trace(A@np.multiply(Sgn,B))
-            SMat= np.matrix([[S(Nx,Nx),S(Nx,Ny),S(Nx,Nz)],[S(Ny,Nx),S(Ny,Ny),S(Ny,Nz)],[S(Nz,Nx),S(Nz,Ny),S(Nz,Nz)]])
-
-            #print(SMat)
-            #return SMat
-            return(SMat/(h*1E9))
-    def curvatureCalculationNaive(self,A,Bp,V,F,indiv=True,eig=True): 
+            else:
+                Es.append(SMat)
+        return np.array(Es).T/(h*1E9)
+        
+    def curvatureCalculationNaive(self,Hx,Hy,Hz,V,F,indiv=True,eig=True): 
         #there is known divide by zeros which we ignore
         with np.errstate(divide='ignore'):
             #split A into its x,y,z elements, and reshape into a dim x dim matrix
-            Hx = A(Bp[:,0])
-            Hy = A(Bp[:,1])
-            Hz = A(Bp[:,2])
+            #Hx = A(Bp[:,0])
+            #Hy = A(Bp[:,1])
+            #Hz = A(Bp[:,2])
             
             
             #a = np.arange(0,self.dim,dtype = np.int)
             
             E=F*h*1E9   
             #             /(E[n]-E)
-            pdb=lambda A,B,n: np.trace(np.nan_to_num(((V.H)@A@V[:,n])@((V[:,n].H)@B@V),posinf=0,nan=0,neginf=0))
-            Ed = np.nan_to_num(1/eachElemFunc(E,E).reshape(self.dim,self.dim),posinf=0,nan=0,neginf=0)
-            pdbn=lambda A,B: np.nan_to_num((((V.H)@A@V)@((V.H)@B@V)@Ed),posinf=0,nan=0,neginf=0)
+            pdb=lambda A,B,n,m: np.trace(np.nan_to_num(((V[:,m].H)@A@V[:,n])@((V[:,n].H)@B@V[:,m])/(E[n]-E[m]),posinf=0,nan=0,neginf=0))
+            #Ed = np.nan_to_num(1/eachElemFunc(E,E).reshape(self.dim,self.dim),posinf=0,nan=0,neginf=0)
+            #pdbn=lambda A,B: np.nan_to_num((((V.H)@A@V)@((V.H)@B@V)@Ed),posinf=0,nan=0,neginf=0)
             #print("EMat",Ed)
             #print("E[0]",E[0]-E)
 
@@ -343,15 +347,21 @@ class cSpinHamiltonian:
             # pdBa = lambda i,j,H: np.diag(np.nan_to_num(pdB(i,j,H),0)).reshape((self.dim,self.dim))
             
             #print(np.diag(np.dot(pdbn(Hx,Hx),Ed)))
-            print(np.sum(pdbn(Hx,Hx),axis=1))
+           # print(np.sum(pdbn(Hx,Hx),axis=1))
 
             Es = []
-            for i in range(self.dim):
-                print((pdb(Hx,Hx,i))/np.sum(E[i]-E))
-                SMat= np.matrix([[pdb(Hx,Hx,i),pdb(Hx,Hy,i),pdb(Hx,Hz,i)],[pdb(Hy,Hx,i),pdb(Hy,Hy,i),pdb(Hy,Hz,i)],[pdb(Hz,Hx,i),pdb(Hz,Hy,i),pdb(Hz,Hz,i)]])
-                #calculate the largest eigen values as a single number proxy to the 
-                Evals = np.linalg.eigvalsh(SMat)
-                Es.append(Evals[np.abs(Evals).argmax()])
+            for n in range(self.dim):
+                SMat=np.zeros((3,3),dtype=np.complex128)
+                for m in range(self.dim):
+                    #print((pdb(Hx,Hx,i))/np.sum(E[i]-E))
+                    SMat+= np.matrix([[pdb(Hx,Hx,n,m),pdb(Hx,Hy,n,m),pdb(Hx,Hz,n,m)],[pdb(Hy,Hx,n,m),pdb(Hy,Hy,n,m),pdb(Hy,Hz,n,m)],[pdb(Hz,Hx,n,m),pdb(Hz,Hy,n,m),pdb(Hz,Hz,n,m)]])
+                if indiv:
+                    #calculate the largest eigen values as a single number proxy to the 
+                    Evals = np.linalg.eigvalsh(SMat)
+                    Es.append(Evals[np.abs(Evals).argmax()])
+                else:
+                    Es.append(SMat)
+            
             return np.array(Es).T/(h*1E9)        
         #print("pdbxx",pdB(0,1,Hx).shape)
             
@@ -360,8 +370,10 @@ class cSpinHamiltonian:
 
     def initSweep(self,thetas,phis,Bs,fdim = None):
         if type(fdim)==NoneType:
-            fdim = int(self.dim)
-        return np.zeros((len(thetas),len(phis),len(Bs),fdim),dtype = np.csingle)
+            fdim = [int(self.dim)]
+        elif not type(fdim)==list:
+            fdim=[fdim]
+        return np.zeros((len(thetas),len(phis),len(Bs),*fdim),dtype = np.csingle)
 
 #Fast spin operator calculation without loops, mainly as an exercise to the Ben, though offers a substantial speedup for large spins.
 def spinOperator(J,matricies=False):
@@ -394,9 +406,23 @@ def spinOperator(J,matricies=False):
         return hstack((Jx.T,Jy.T,Jz.T))
 
 #return the tensor A rotatated by the euler angles in angles
-def tensorRotation(A,angles,str='ZYX'):
-    R = np.asmatrix(Rotation.from_euler(str,angles).as_matrix())
+def tensorRotation(A,angles,str='ZYX',dumb=False):
+    if dumb:
+        R=rotMatrixDumb(angles)
+    else:
+        R = np.asmatrix(Rotation.from_euler(str,angles).as_matrix())
     return R@A@R.T
+
+
+def rotMatrixDumb(a):
+    c = np.cos(a)
+    s=  np.sin(a)
+
+    X = np.matrix([[1,0,0],[0,c[0],-s[0]],[0,s[0],c[0]]])
+    Y = np.matrix([[c[1],0,s[1]],[0,1,0],[-s[1],0,c[1]]])
+    Z = np.matrix([[c[2],-s[2],0],[s[2],c[2],0],[0,0,1]])
+    
+    return X@Y@Z
 
 #performs a function between each element of A and every element of B, mainly used in getting transition frequencies but kept general
 #
@@ -418,9 +444,12 @@ def sphereCart(r,theta,phi):
     return r*Rotation.from_euler('yz',[theta,phi]).as_matrix()@np.matrix([0,0,1]).T
 
 #returns the unit vector from the given spherical coords theta,phi
-def sphereUnit(vals):
-    RM = Rotation.from_euler('yz',vals).as_matrix()
-    return RM@np.matrix([0,0,1]).T
+def sphereUnit(vals,unit=True,str='yz'):
+    RM = Rotation.from_euler(str,vals).as_matrix()
+    if unit:
+        return RM@np.matrix([0,0,1]).T
+    else:
+        return RM
 #converts euler angles to spherical coordinate theta,phi. I think this works in all cases but double check
 def eulerToSphere(angles,str):
     R =  Rotation.from_euler(str,angles).as_euler('ZYZ')
@@ -440,7 +469,19 @@ def eulerToSphereRobust(angles,str):
 #calculates |<i|O|j>|^2, given two eigen vectors, Vi,Vj and a hamiltonian H
 def fermiElem(Vi,O,Vj):
     E = Vi.H@O@Vj
-    return (E.H@E).item()
+    E = E.H@E
+    if E.shape==1:
+        return (E).item()
+    else:
+        return E
+#returns two index arrays such that each index from 0 to dim interacts with every other index
+def tilerepidx(dim):
+    #generate the 0 to dim array
+    a = np.arange(0,dim,dtype = np.int)
+    #get each matrix element as vectors
+    b = np.tile(a,dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
+    a = np.repeat(a,dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
+    return a,b
 
 #transitions strength for differing energy levels and not assiociated with a hamiltonian
 def TransitionStrength(V1,V2,O,dim):
@@ -448,14 +489,30 @@ def TransitionStrength(V1,V2,O,dim):
     #     V1= V1[np.newaxis]
     # if V2.ndim<3:
     #     V2= V2[np.newaxis]
+
+    #a,b = tilerepidx(dim)
     
-    N = np.zeros(int(dim**2),dtype = complex)
-    k=0
-    for i in range(0,dim):
-           for j in range(0,dim):
-             N[k] = fermiElem(V1[:,i],O,V2[:,j])
-             k+=1
-    return N.T#np.diag(N)#/(h*1E9)
+
+    alt = V1.H@O@V2
+    alt = np.squeeze(np.asarray(alt.reshape(dim**2)))
+    alt = np.power(np.abs(alt),2)
+    #alt = np.diag(alt.H@alt)
+    
+
+    #%timeit np.diag(alt.H@alt)
+    #print("Alt: ", alt.shape,alt)
+    # N = np.zeros(int(dim**2),dtype = complex)
+    # k=0
+    # for i in range(0,dim):
+    #        for j in range(0,dim):
+    #          N[k]=np.abs(V1[:,i].H@O@V2[:,j])**2
+    #          #N[k] = fermiElem(V1[:,i],O,V2[:,j])
+    #          k+=1
+    # # print("OrigL ",N.shape, N)
+    # print("diff ",np.nanmean(np.abs(alt-N)/np.abs(alt)),np.nanstd(np.abs(alt-N)/np.abs(alt)))
+    # print("ratio ",np.nanmean(np.abs(N)/np.abs(alt)),np.nanstd(np.abs(N)/np.abs(alt)))
+    # #np.nan
+    return alt.T#np.diag(N)#/(h*1E9)
 
 
 #Runs through a set of frequencies and optionally transition strengths and gets a weight for each output frequency
@@ -602,29 +659,74 @@ def ZEFOZidx(A,ax=0):
     idy = zero_crossings(A,1)
     idz = zero_crossings(A,2)
 
-    idx = idx[np.where(idx[:,4]==0)]
-    idy = idy[np.where(idy[:,4]==1)]
-    idz = idz[np.where(idz[:,4]==2)]
+
+    Zfx=three_axis_zero(idx)
+    Zfy=three_axis_zero(idy)
+    Zfz=three_axis_zero(idz)
+    ind = np.vstack([Zfx,Zfy,Zfz])
+    ind =np.unique(ind[:,0:4],axis=0)
+    # idx = idx[np.where(idx[:,4]==0)]
+    # idy = idy[np.where(idy[:,4]==1)]
+    # idz = idz[np.where(idz[:,4]==2)]
     
     #print(idx.shape,idy.shape)
-    id = np.vstack([idx,idy])
-    #print(id)
+    #print(idx.shape)
+    #ind = np.vstack([idx,idy,idz])
+    #print(ind.shape)
+    #ind=idz
+    
     #groups the ids by the first four indicies, (theta,phi,B,transition),
     #and calculates the sum of the fifth axis (x,y,z), where the +1 accounts for the discrepency of x being missing or a crossing
     #x_u,y_s = group_by(id[:,0:4]).sum(id[:,4]+1)
     
     #print(id)
-    x_u,i_s,y_s=np.unique(id[:,0:4],axis=0,return_counts=True,return_index=True)
+    #x_u,i_s,y_s=np.unique(ind[:,0:4],axis=0,return_counts=True,return_index=True)
     
     
     #print(id)
     #if the above sum is 6, i.e. zero crossing present in x,y,z, consider this  a ZEFOZ point.
-    zf = np.argwhere(y_s==2)
+    #zf = np.argwhere(y_s>=3)
+    #print(y_s[zf])
     
     #select the remaining indexes where these zefoz point appear
-    id = x_u[zf[:,0],:]
-    return id
+    #ind = x_u[zf[:,0],:]
+    return ind.astype(int)
+
+def three_axis_zero(a):
+    x_u,i_s,y_s=np.unique(a[:,0:4],axis=0,return_counts=True,return_index=True)
+    #if the above sum is 3, i.e. zero crossing present in x,y,z, consider this  a ZEFOZ point.
+    zf = np.argwhere(y_s==3)
+    #print(y_s[zf].T)
+    #select the remaining indexes where these zefoz point appear
+    return x_u[zf[:,0],:]
 
 
 #Locates zero crossings in a along the specified axis ax
-zero_crossings =lambda a,ax: np.argwhere(np.diff(np.sign(a),axis=ax))
+def zero_crossings(a,ax):
+    ZC=np.argwhere(np.diff(np.sign(a),axis=ax))
+    #ZC[:,ax]+=1
+    return ZC
+
+def connectedPoints(ZP):
+    #get all points that differ from their neighbours by at most one
+    spid=np.argwhere(np.abs(np.diff(ZP[:,0:4],axis=0))>1)[:,0].flatten()+1
+    spidt=np.argwhere(np.diff(ZP[:,3],axis=0))[:,0].flatten()+1
+    #print()
+    #print(spid,spidt)
+    
+    spidx=np.concatenate((spid,spidt))
+    #print(spidx)
+    CP = np.split(ZP,spidx,axis=0)
+    return CP
+
+def connectedRegion(ZP):
+    CP=connectedPoints(ZP)
+    CR = []
+
+    for r in CP:
+        #print(r[:,0],r[:,1],r[:,2])
+        xv=([np.min(r[:,0]),np.max(r[:,0])+1])
+        yv=([np.min(r[:,1]),np.max(r[:,1])+1])
+        zv=([np.min(r[:,2]),np.max(r[:,2])+1])
+        CR.append([xv,yv,zv])
+    return CR
