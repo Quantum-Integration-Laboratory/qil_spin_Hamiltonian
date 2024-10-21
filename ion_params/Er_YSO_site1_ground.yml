@@ -1,0 +1,18 @@
+Spin:
+  Espin: 1/2
+  Ispin: 7/2
+Hyperfine:
+  A: np.matrix([[304.8,-252.8,-307.6],[-252.8,778.0,710.2],[-307.6,710.2,616.2]])*1e6*h
+  A_rot: np.array([0,0,0])
+Quadrupole:
+  Q: np.matrix([[10.1,-10.1,-14.0],[-10.1,-6.3,-15.2],[-14.0,-15.6,-3.8]])*1e6*h
+  Q_rot: np.array([0,0,0])
+E_Zeeman:
+  g: np.matrix([[2.85,-2.98,-3.63],[-2.98,9.00,5.51],[3.63,5.51,5.19]])
+  g_rot: np.array([0,0,0])
+N_Zeeman:
+  mu: "-0.56"
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])
