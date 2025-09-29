@@ -1,0 +1,15 @@
+Spin:
+  Espin: "1/2"
+  Ispin: "1/2"
+Hyperfine:
+  A: np.matrix([[-3.0819,0,0],[0,-3.0819,0],[0,0,-0.789]])*1e9*h
+  A_rot: np.array([0,0,0])
+E_Zeeman:
+  g: np.matrix([[1.362,0,0],[0,1.362,0],[0,0,-1.452]])
+  g_rot: np.array([0,0,0])
+N_Zeeman:
+  mu: "0.987"
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])

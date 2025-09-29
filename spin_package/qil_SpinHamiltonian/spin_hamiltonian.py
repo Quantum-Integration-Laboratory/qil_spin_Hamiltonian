@@ -35,6 +35,8 @@ def hamilFromYAML(filename,EOveride=None,IOveride=None):
         I=eval(params["Spin"]["Ispin"])
     hamil=cSpinHamiltonian(E,I)
     hamil.importYAMLparams(filename)
+    A = hamil.genAMatrix(muB*hamil.gE,hamil.S)
+    hamil.A=A
     return hamil
 
 #class containing many parameters for a spin hamiltonian. Ideally it contains H a static hamiltoninan
@@ -322,7 +324,7 @@ class cSpinHamiltonian:
     def TransitionStrength(self,V,O):
         N = np.zeros((self.dim,self.dim),dtype = np.csingle)
         #generate the 0 to dim array
-        a = np.arange(0,self.dim,dtype = np.int)
+        a = np.arange(0,self.dim,dtype = int)
         #get each matrix element as vectors
         b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
         a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
@@ -398,7 +400,7 @@ class cSpinHamiltonian:
 
 
             #generate the 0 to dim array
-            a = np.arange(0,self.dim,dtype = np.int)
+            a = np.arange(0,self.dim,dtype = int)
             #get each matrix element as vectors
             b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
             a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
@@ -611,7 +613,7 @@ def fermiElem(Vi,O,Vj):
 #returns two index arrays such that each index from 0 to dim interacts with every other index
 def tilerepidx(dim):
     #generate the 0 to dim array
-    a = np.arange(0,dim,dtype = np.int)
+    a = np.arange(0,dim,dtype = int)
     #get each matrix element as vectors
     b = np.tile(a,dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
     a = np.repeat(a,dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
@@ -875,6 +877,13 @@ def nonSymmetricBs(Bmax,pts,iPlane=np.array([1,1,1])):
     Bzi = np.linspace(-Bmax,Bmax,pts)
 
     Bsi = np.array(np.meshgrid(Bxi,Byi,Bzi)).reshape(3,-1)
-    direction=np.array([1,1,1])
-    idx=np.squeeze(np.where(np.dot(direction,Bsi)>=0))
+    idx=np.squeeze(np.where(np.dot(iPlane,Bsi)>=0))
     return Bsi[:,idx]
+
+def properRotation(j,n):
+    """
+    Determines the character table element for a proper rotation
+    j: The spin
+    n: the fraction of rotation coming from the symmetry operation
+    """
+    return np.divide(np.sin((j+1/2)*2*np.pi/n),np.sin(np.pi/n))
