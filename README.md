@@ -1,82 +1,102 @@
 # Spin Hamiltonian
 This code is designed to implement a model of the spin hamiltonian. This was initially designed with the intention of finding Zero First Order Zeeman (ZEFOZ) points though has expanded in scope somewhat since then.
 
-Two main files are implemented the main `spin_hamiltonian.py` with most of the functions and `search.py` which is intended for implementing search functions though is a bit limited for now.
+Two main files are implemented: the main `spin_hamiltonian.py` with most of the functions and `search.py` which is intended for implementing search functions though is a bit limited for now.
 
 # Theory 
 
-Spin Hamiltonains should consist of some combination of the form:
-$$ H = \underbrace{I\times A\times S}_{\textrm{hyperfine}}+\underbrace{I\times Q\times I}_{Quadrupole}+\underbrace{\mu_{B}\times B\times g\times S}_{\textrm{Electronic Zeeman}}-\underbrace{\mu_{n}\times B\times g_{n}\times I}_{\textrm{Nuclear Zeeman}} $$
-
-The I and S matricies are of fixed form generated from the electronic and nuclear spin degrees respectively. We track the size of these matricies through the paramater `Edim` and `Idim` respectively (collectively `Jdim`) with size $(2J+1)$. for ease of calculation these are reshaped into a `Jdim x 3` matrix, such that the first column consits of all the elements of the $J^x$ matrix the second $J^y$ ect.
+Spin Hamiltonians should consist of some combination of the form:
+```math
+H = \underbrace{I\times A\times S}_{\textrm{hyperfine}}+\underbrace{I\times Q\times I}_{Quadrupole}+\underbrace{\mu_{B}\times B\times g\times S}_{\textrm{Electronic Zeeman}}-\underbrace{\mu_{n}\times B\times g_{n}\times I}_{\textrm{Nuclear Zeeman}}
+```
+The I and S matrices are of fixed form generated from the electronic and nuclear spin degrees respectively. We track the size of these matrices through the parameters `Edim` and `Idim` respectively (collectively `Jdim`) with size $(2J+1)$. for ease of calculation these are reshaped into a `Jdim x 3` matrix, such that the first column consists of all the elements of the $J^x$ matrix the second $J^y$ ect.
 
 $$ J^{x}_{ij} = \frac{1}{2}(\delta{i,j+1}+\delta_{i+1,j})\sqrt{(J+1)(i+j-1)-ij} $$ 
 $$ J^{y}_{ij} = \frac{i}{2}(\delta{i,j+1}-\delta_{i+1,j})\sqrt{(J+1)(i+j-1)-ij} $$ 
 $$ J^{z}_{ij} = (J+1-i)\delta{ij} $$
 
-The hyperfine (A), Quadruople (Q), and Zeeman (g and $g_n$), tensors will be more dependant on the species used and must be entered manually, this will be explained in more detial below. In general particularly for low symmetry systems these will consist of three elements of a diagonal matrix and three rotation elements ($\alpha, \beta, \gamma$), which define a rotation in euler notation, it is also important to note which notation this rotation is done in. This maps the measured data to a more universal lab or crystal frame. This is done through the tensor rotation below
-$$A= R(\alpha,\beta,\gamma)\times A\times R^T(\alpha,\beta,\gamma)$$
+The hyperfine (A), Quadrupole (Q), and Zeeman (g and $g_n$)tensors will be more dependent on the species used and must be entered manually; this will be explained in more detail below. In general particularly for low symmetry systems these will consist of three elements of a diagonal matrix and three rotation elements ($\alpha, \beta, \gamma$), which define a rotation in euler notation, it is also important to note which notation this rotation is done in. This maps the measured data to a more universal lab or crystal frame. This is done through the tensor rotation below
+```math
+A= R(\alpha,\beta,\gamma)\times A\times R^T(\alpha,\beta,\gamma)
+```
 
-We seperate the hamiltonian into two parts the static hamiltonian which is not dependant on external factors, namely the magnetic field. And the dynamic term which is dependant on things like the magnetic field. In general the static term is pre calculated and the dynamic calculated as needed. The final resulting hamiltonian will be a square matrix with side length `(Edim x IDim)`
+We separate the hamiltonian into two parts, the static hamiltonian which is not dependent on external factors, namely the magnetic field. And the dynamic term which is dependent on things like the magnetic field. In general the static term is pre calculated and the dynamic calculated as needed. The final resulting hamiltonian will be a square matrix with side length `(Edim x IDim)`
 
-From here the hamiltonian is converted into energy units, and the eigenvectors and values are easily calculated, though some care is taken to ensure these are in the correct order. An example of the calculated energeyl levels for Yb:YVO is shown below. 
+From here the hamiltonian is converted into energy units, and the eigenvectors and values are easily calculated, though some care is taken to ensure these are in the correct order. An example of the calculated energy levels for Yb:YVO is shown below. 
 
 ![png](README_files/README_16_0.png)
 
-In order to then calculate transition frequencies, we can then subtract each energy level from every other energy level in either the same or a different hamiltonian. Transistion strengths can be included, calculated by the fermi element of the overlap of the eigenvectors mediated by some matrix. The calculation of these matrices is generally non-trivial and left as an excersize ot the reader.
-$$ O=\left|\left<\psi_n\right|M\left|\psi_n\right>\right|^2 $$
+In order to then calculate transition frequencies, we can then subtract each energy level from every other energy level in either the same or a different hamiltonian. Transition strengths can be included, calculated by the fermi element of the overlap of the eigenvectors mediated by some matrix. The calculation of these matrices is generally non-trivial and left as an exercise to the reader.
+```math
+O=\left|\left<\psi_n\right|M\left|\psi_n\right>\right|^2
+```
 ![png](README_files/README_20_1.png)
 
 ## Derivatives for ZEFOZ finding
-Also of interest is particularly in the case of finding ZEFOZ or clock transitions is the first and second derivatives of the hamiltonian. 
+Also of interest is particularly in the case of finding ZEFOZ or clock transitions as the first and second derivatives of the hamiltonian. 
 
 ### First order
-Coming from pertubation theory the first order sensitivty $\vec{S}_1$ of the transition $f_n$ with respect to magnetic field is given by
-
-$$ \vec{S}_{1} = \frac{\partial f_{n}}{\partial B_{x}}\vec{i}+\frac{\partial f_{n}}{\partial B_{y}}\vec{j}+\frac{\partial f_{n}}{\partial B_{z}}\vec{k} $$
-
+Coming from perturbation theory the first order sensitivity $\vec{S}_1$ of the transition $f_n$ with respect to magnetic field is given by
+```math
+\vec{S}_{1} = \frac{\partial f_{n}}{\partial B_{x}}\vec{i}+\frac{\partial f_{n}}{\partial B_{y}}\vec{j}+\frac{\partial f_{n}}{\partial B_{z}}\vec{k}
+```
 With 
-$$ \frac{\partial f_{n}}{\partial B_{i}} = \left<\psi_{n}\right|\frac{\partial H}{\partial B_{i}}\left|\psi_{n}\right>  $$
+```math
+\frac{\partial f_{n}}{\partial B_{i}} = \left<\psi_{n}\right|\frac{\partial H}{\partial B_{i}}\left|\psi_{n}\right>
+```
 In the case of only zeeman terms in our dynamic hamiltonian the derivative of the hamiltonian will simply be its value at the unit vector along each of the cardinal directions.
 
-The sensitivty of the transition is then:
-$$ \frac{\partial f_{nm}}{\partial B_{i}}=\frac{\partial f_{n}}{\partial B_{i}}-\frac{\partial f_{m}}{\partial B_{i}} $$
-
+The sensitivity of the transition is then:
+```math
+\frac{\partial f_{nm}}{\partial B_{i}}=\frac{\partial f_{n}}{\partial B_{i}}-\frac{\partial f_{m}}{\partial B_{i}}
+```
 ### Second Order
-The second order is slightly complicated but still an extension from pertubation theory given by
-$$ \vec{S}_{2} = \begin{pmatrix}\frac{\partial^2 f}{\partial B_{x}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{x}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{x}\partial B_{z}}\\\frac{\partial^2 f}{\partial B_{y}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{y}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{y}\partial B_{z}}\\\frac{\partial^2 f}{\partial B_{z}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{z}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{z}\partial B_{z}}\end{pmatrix} $$
+The second order is slightly complicated but still an extension from perturbation theory given by
+```math
+\vec{S}_{2} = \begin{pmatrix}\frac{\partial^2 f}{\partial B_{x}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{x}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{x}\partial B_{z}}\\\frac{\partial^2 f}{\partial B_{y}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{y}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{y}\partial B_{z}}\\\frac{\partial^2 f}{\partial B_{z}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{z}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{z}\partial B_{z}}\end{pmatrix}
+```
 
 With
-$$ \frac{\partial^2 f}{\partial B_{i}\partial B_{j}} =\sum_{m\neq n}\frac{1}{f_{n}-f_{m}}\left<\psi_{m}\right|A_{i}\left|\psi_{n}\right>\left<\psi_{n}\right|A_{j}\left|\psi_{m}\right> $$
-
+```math
+\frac{\partial^2 f}{\partial B_{i}\partial B_{j}} =\sum_{m\neq n}\frac{1}{f_{n}-f_{m}}\left<\psi_{m}\right|A_{i}\left|\psi_{n}\right>\left<\psi_{n}\right|A_{j}\left|\psi_{m}\right> 
+```
 A few tricks are played in code to ease this calculation that are worth highlighting here.
 We first calculate all the matrix elements.
-$$ \partial_{i}^{nm}=\bra{\psi_{n}}\frac{\partial H}{\partial B_{i}}\ket{\psi_{m}} $$
+```math
+\partial_{i}^{nm}=\bra{\psi_{n}}\frac{\partial H}{\partial B_{i}}\ket{\psi_{m}}
+```
 We then create a matrix $T$ of all transition energies such that
-$$ T_{nm}=\frac{1}{E_n-E_{m}}$$
+```math
+T_{nm}=\frac{1}{E_n-E_{m}}
+```
 Enforcing that $T_{nn}\equiv 0$. Each element can then be calculated as
-$$ \frac{\partial^{2}}{\partial B_{i}\partial B_{j}}f_{n}=\textrm{diag}((\mathbf{\partial}_{i}\odot T)\cdot \mathbf{\partial}_{j}) $$
+```math
+\frac{\partial^{2}}{\partial B_{i}\partial B_{j}}f_{n}=\textrm{diag}((\mathbf{\partial}_{i}\odot T)\cdot \mathbf{\partial}_{j})
+```
 With $\odot$ the hadamard or element wise product and $\cdot$ matrix multiplication.
 
 With this the we can determine the field induced dephasing rate
-$$ \frac{1}{\pi T_{2}} = \vec{S}_{1}\cdot\Delta\vec{B}+\Delta\vec{B}\cdot\vec{S}_{2}\cdot\Delta\vec{B} $$
+
+```math
+\frac{1}{\pi T_{2}} = \vec{S}_{1}\cdot\Delta\vec{B}+\Delta\vec{B}\cdot\vec{S}_{2}\cdot\Delta\vec{B}
+```
 
 # Installation
 The package should be installed with a package manager. 
 1. Clone this repo to a local location.
-2. Direct a terminal to the `spin_package` directory i.e.e `cd SOMEPATH/spin_package`
+2. Direct a terminal to the `spin_package` directory i.e. `cd SOMEPATH/spin_package`
 3. From this terminal run `pip install --editable .`
     - This means when further updates are pulled they are automatically recognised by the package
 
 # spin_hamiltonian.py
-In terms of actually using the code. Most of the code is handled by the `cSpinHamiltonian` class it can be instantiated manually or by passing a YAML file containing all the relevant paramaters.
+In terms of actually using the code. Most of the code is handled by the `cSpinHamiltonian` class; it can be instantiated manually or by passing a YAML file containing all the relevant parameters.
 
-An interactive version fo this code is found in [example_usage.ipynb](./example_usage.ipynb)
+An interactive version of this code is found in [example_usage.ipynb](./example_usage.ipynb)
 
 > [!NOTE]
-> - Hamiltonian input Paramaters should be in Joules, Magnetic fields in T.
+> - Hamiltonian input Parameters should be in Joules, Magnetic fields in T.
 > - Output frequency units will be in GHz.
-> - For calculating across `(3,k)` magentic field values work has been done to a abide by the following axis convention `(k,d,...)` for all outputs
+> - For calculating across `(3,k)` magnetic field values work has been done to a abide by the following axis convention `(k,d,...)` for all outputs
 >   - k, is the number of field values
 >   - d, is the dimension of number of energy levels
 >   - any additional dimensions follow
@@ -85,9 +105,9 @@ An interactive version fo this code is found in [example_usage.ipynb](./example_
 ## Initialising
 
 ### Manual Setup
-We will use Pr:YSO as an example as it has relatively through but still pedagocially relevant paramaters. As a Kramers ion it has effective electronic spin 0, a nuclear spin of 5/2, an anisotropic nuclear g tensor, and a quadropole effect. All paramaters come from Fraval, 2004
+We will use Pr:YSO as an example as it has relatively simple but still pedagogically relevant parameters. As a Kramers ion it has effective electronic spin 0, a nuclear spin of 5/2, an anisotropic nuclear g tensor, and a quadrupole effect. All parameters come from Fraval, 2004
 
-We first define our various paramaters
+We first define our various parameters
 ```python
 Espin=0
 Ispin=5/2
@@ -101,10 +121,10 @@ alpha,beta,gamma=np.array([-99.8,55.8,-40])*np.pi/180
 M=spin.tensorRotation(M,[alpha,beta,gamma],conv='ZYZ')
 Q=spin.tensorRotation(Q,[alpha,beta,gamma],conv='ZYZ')
 
-#Instantiates the class and sets up dimensions and spin matricies
+#Instantiates the class and sets up dimensions and spin matrices
 ground = spin.cSpinHamiltonian(Espin,Ispin)
 
-#pass these matricies to the class
+#pass these matrices to the class
 ground.setM(M)
 #This will calculate and store the interaction in our static hamiltonian
 ground.quadrupoleInteraction(Q)
@@ -112,13 +132,13 @@ ground.quadrupoleInteraction(Q)
 print(ground.H.shape) 
 
 ```
-### Import Paramaters
-Paramaters can also be imported using a set of paramater stored in a YAML, this basically runs through the above depending on what values are in the file. 
+### Import Parameters
+Parameters can also be imported using a set of parameters stored in a YAML, this basically runs through the above depending on what values are in the file. 
 
 > [!CAUTION]
 > In order to implement easy conversion and matrix operations, the `eval()` function is called on most passed inputs. Do not run this on files without first checking they aren't doing something weird.
 
-We will use the [Pr_YSO.yml](./ion_params/Pr_YSO.yml), file that contains the same paramaters. The spin values can be overridden on the import for ease of including multiple isotopes.
+We will use the [Pr_YSO.yml](./ion_params/Pr_YSO.yml), a file that contains the same parameters. The spin values can be overridden on the import for ease of including multiple isotopes.
 ```python
 #Much simpler
 groundI=spin.hamilFromYAML('./ion_params/Pr_YSO.yml')
@@ -127,12 +147,12 @@ groundI=spin.hamilFromYAML('./ion_params/Pr_YSO.yml')
 groundN=spin.hamilFromYAML('./ion_params/Pr_YSO.yml',IOveride=3/2)
 
 ```
-#### Full import Paramaters:
+#### Full import Parameters:
 > [!Note] 
 > There are multiple conventions used for quadrupole tensors 
 > - `mu`, this assumes an isotropic value and $g_{n}=\mu I_{3}$
 > - `gn`, this can be anisotropic $g_{n}=g_{n}$
-> - `M`, some papers include nuclear magniton in the tensor $g_n=M/\mu_{n}$
+> - `M`, some papers include nuclear magneton in the tensor $g_n=M/\mu_{n}$
 > In manual mode we can use `setgN` or `setM` 
 > If multiple are defined in the YAML it takes the first in the order `M,gn,mu`
 
@@ -161,7 +181,7 @@ N_zeeman:
 ## Running Code
 From here we likely want to evaluate at a range of magnetic field values. These should form a (3,k) array. If we aren't doing anything too fancy we can pass this to the dynamic N setup by the setup process.
 
-We can also define H ourselves, however there is the catch that the static hamiltonian will always be (dim,dim), where as the dynamic will have the addition of the sweep dimension (k,dim,dim). We can force any static terms to match using `np.array(Hs)[np.newaxis,...]`. We first convert it from a matrix to an ndarray allowing us to exceed hte two dimension limit. The new axis slicing then handles the rest.
+We can also define H ourselves, however there is the catch that the static hamiltonian will always be (dim,dim), whereas the dynamic will have the addition of the sweep dimension (k,dim,dim). We can force any static terms to match using `np.array(Hs)[np.newaxis,...]`. We first convert it from a matrix to an ndarray allowing us to exceed the two dimension limit. The new axis slicing then handles the rest.
 ```python
 #generate a set of fields from zero to 100mT
 Bz=np.linspace(0,200*1E-3,200)
@@ -193,13 +213,13 @@ T=spin.eachElemFunc(F,F,ax=1)
 plt.plot(Bz,T)
 plt.show()
 ```
-We can also calculate gradients and curvatures, though these are more annyoing to visualise.
+We can also calculate gradients and curvatures, though these are more annoying to visualise.
 ```python
 #This uses the default calculated hamiltonian derivative based on dynamicH
 df=groundI.firstDerivative(V)
 
 #To be explicit we just calculate the gradient as the value at the Identity
-    #This generates the three x,y,z hamiltonian elements that are then seperated
+    #This generates the three x,y,z hamiltonian elements that are then separated
 dH=-groundI.nuclearZeeman(np.eye(3))
 dH/=h*1E9 #Remember to convert to GHz
 
@@ -222,7 +242,7 @@ These functions are intended to take parts of the spin hamiltonian and run some 
 # Major Changelog:
 ## October 2025
 
-This makes quite a few changes that are likely to not be backwards compatable
+This makes quite a few changes that are likely to not be backwards compatible
 
 - All functions are now vectorised with respect to passed magnetic field
     - Convention is field values as the first dimension, transition as the last
@@ -239,3 +259,4 @@ This makes quite a few changes that are likely to not be backwards compatable
 - `firstOrderEnergySensitivty`-> `gradient`
 - `CurvatureCalculation`->`curvature`
 - Swapped `QuadrupoleAlt` and `Quadrupole`
+
