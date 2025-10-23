@@ -10,6 +10,9 @@ import yaml
 #from multiprocessing import Pool
 from pathos.multiprocessing import ProcessingPool as Pool
 
+import warnings
+
+
 muB = 9.27400968e-24 #Bohr Magneton (J/T)
 muN = 5.05078375e-27 #Nuclear Magneton (J/T)
 hbar = 1.055E-34 #Reduced planck constant (Js)
@@ -23,7 +26,26 @@ gaussianNorm = lambda x,m,s: (1/np.sqrt(2*np.pi*np.square(s)))*np.exp(np.divide(
 
 NoneType=type(None)
 
-def hamilFromYAML(filename,EOveride=None,IOveride=None):
+obsWarning="This function is old and probably ineffecient. It may well never be deleted but you probably should avoid it anyway."
+
+def hamilFromYAML(filename:str,EOveride:float=None,IOveride:float=None):
+    """
+    Creates a hamiltonian from the paramaters contained in a YAML file
+    Parameters
+    ----------
+    filename: str
+        The file to get the paramaters from
+    EOveride: float
+        Allows a different electronic spin to be used, probably less useful
+    EOveride: float
+        Allows a different nuclear spin to be used, useful for isotopes
+
+    Returns
+    -------
+    spin: cSpinHamiltonian
+        The spin hamiltonian based on the file
+    """
+
     with open(filename,'r') as file:
             params=yaml.safe_load(file)
     print(params)
@@ -35,14 +57,31 @@ def hamilFromYAML(filename,EOveride=None,IOveride=None):
         I=eval(params["Spin"]["Ispin"])
     hamil=cSpinHamiltonian(E,I)
     hamil.importYAMLparams(filename)
-    A = hamil.genAMatrix(muB*hamil.gE,hamil.S)
-    hamil.A=A
+    dH = hamil.genDerivMatrix()
+    hamil.dH=dH
     return hamil
 
 #class containing many parameters for a spin hamiltonian. Ideally it contains H a static hamiltoninan
 #and functions to calculate dynamic hamiltonian parts based on provided values.
 class cSpinHamiltonian:
-    def __init__(self,E,I):
+    
+    def __init__(self,E:float,I:float):
+        """
+        The class that contains most of the spin hamiltonian paramaters, only the spins are passed on 
+        setup as these set fundamental dimensions the rest of the values are passed through setters
+
+        Parameters
+        ----------
+        E: float
+            The Electronic Spin
+        I: float
+            The nuclear spin
+
+        Returns
+        -------
+        self: cSpinHamiltonian
+            The class
+        """
         #Sets up electronic and nuclear spin operators and initialises empty static hamiltonian
         self.Edim = int(2*E+1)
         self.Idim = int(2*I+1)
@@ -59,12 +98,24 @@ class cSpinHamiltonian:
         self.gN=None
         self.Hfunc=None
         self.A=None
-    def calcH(self,B):
-        return self.Hfunc(B,self)
-
-        #self.initSweep = lambda thetas,phis,Bs: 
+        self.Q=None
+        self.flags=[]
+ 
     #Calculates the hyperfine interaction hamiltonian IAS, and adds it to the static hamiltonian
-    def hyperfineInteraction(self,A):
+    def hyperfineInteraction(self,A:np.matrix)->np.matrix:
+        """
+        Calculates the hyper fine interaction and adds it to the static Hamiltonian
+            IAS
+        Parameters
+        ----------
+        A: np.matrix (3,3)
+            The hyperfine tensor
+        Returns
+        -------
+        HHF: np.matrix (dim,dim)
+            The calculated hamiltoninan term
+        """
+        self.A=A
         #calculate the hyperfine interaction 
         self.HHF = (self.I)@A@(self.S).T
         #reshape the hamiltonian to maintain dimension
@@ -79,15 +130,24 @@ class cSpinHamiltonian:
         return self.HHF
 
     #calculate the quadrapole interaction IQI
-    def quadrupoleInteractionAlt(self,Q):
-        #calculate and reshape our hyperfine term
+    def quadrupoleInteraction(self,Q:np.matrix)->np.matrix:
+        """
+        Calculates the quadrupole interaction and adds it to the static Hamiltonian
+            IQI
+        Parameters
+        ----------
+        Q: np.matrix (3,3)
+            The Quadrupole tensor
+        Returns
+        -------
+        HQP: np.matrix (dim,dim)
+            The calculated hamiltonian term
+        """
+        self.Q=Q
         self.HQP = (self.I)@Q@(self.I).T
-        # H=0
-        # print(self.HQP.shape,self.HQP.shape)
-        # for i in range(self.HQP.shape[0]):
-        #     H+=self.HQP[i,:].reshape((self.Edim,self.Idim))
+
         self.HQP = self.HyperfineReshape(self.HQP)
-        # self.HQP=H
+
         #if we haven't initialised the static hamiltonian set it to the quadrupole
         #otherwise add the quadrupol term
         if type(self.H) is NoneType:
@@ -95,8 +155,22 @@ class cSpinHamiltonian:
         else:
             self.H+=self.HQP
         return self.HQP
+    
     #slightly less effecient?, using operator form.
-    def quadrupoleInteraction(self,Q):
+    def quadrupoleInteractionAlt(self,Q:np.matrix)->np.matrix:
+        """
+        Slightly more explicit way to calculates the quadrupole interaction and adds it to the static Hamiltonian
+            IQI
+        Parameters
+        ----------
+        Q: np.matrix (3,3)
+            The Quadrupole tensor
+        Returns
+        -------
+        HQP: np.matrix (dim,dim)
+            The calculated hamiltonian term
+        """
+        self.Q=Q
         Ispin = (self.Idim-1)/2
         Is = spinOperator(Ispin,matricies=True)
         H= 0
@@ -114,12 +188,20 @@ class cSpinHamiltonian:
 
 
 
-    #reshape the hamiltonian to maintain to be Edim*Idim by Edim*Idim
-    def HyperfineReshape(self,H=None):
+    def HyperfineReshape(self,H=None)->np.matrix:
+        """
+        Reshape the hamiltonian to maintain to be Edim*Idim by Edim*Idim
+        
+        Parameters
+        ----------
+        H: np.matrix (Idim,Idim)
+            The matrix to be reshaped
+        Returns
+        -------
+        H: np.matrix (dim,dim)
+            The reshaped matrix
+        """
         Idim = self.Idim
-        #print("Pre:",H.shape)
-        #print(H)
-        #print(Idim)
         if type(H) is NoneType:
             H = self.HHF
         a=H[:,0].reshape((Idim,Idim))
@@ -128,21 +210,69 @@ class cSpinHamiltonian:
         d=H[:,3].reshape((Idim,Idim))
         if self.Edim==1:
             return a
-            #return np.matrix(np.diag(H)).reshape(Idim,Idim)
-        #print("Post:",2*a.shape)
-        #print(np.block([[a,b.T],[c.T,d]]))
         return np.block([[a,b.T],[c.T,d]])
 
 
     #setters for our g paramaters
-    def setgE(self,g):
+    def setgE(self,g:np.matrix)->None:
+        """
+        Sets the electronic Zeeman, and tells dynamic H it exists
+        Parameters
+        ----------
+        g: (3,3) matrix
+            The g tensor
+        Returns
+        -------
+        None
+        """
         self.gE= g
-    def setgN(self,g):
+        self.flags.append("ZE")
+    def setgN(self,g:np.matrix)->None:
+        """
+        Sets the nuclear Zeeman, for the case where mu_n is required 
+        Also tells dynamic H it exists
+        Parameters
+        ----------
+        g: (3,3) matrix
+            The g tensor
+        Returns
+        -------
+        None
+        """
         self.gN= g
-    def setM(self,M):
-        self.M = M
+        if not type(g)==type(None):
+            self.flags.append("ZN")
 
-    def importYAMLparams(self,file):
+    def setM(self,M:np.matrix)->None:
+        """
+        Sets the nuclear Zeeman, for the case where mu_n is included in the tensor
+        Also tells dynamic H it exists
+        Parameters
+        ----------
+        M: (3,3) matrix
+            The M tensor
+        Returns
+        -------
+        None
+        """
+
+        self.M = M
+        if not type(M)==type(None):
+           self.flags.append("ZN")
+
+    def importYAMLparams(self,file:str)->None:
+        """
+        Import the hamiltonian paramaters from a file into the class
+        
+        Parameters
+        ----------
+        file : str
+            The file to get paramaters from
+        Returns
+        -------
+        None
+
+        """
         with open(file,'r') as file:
             params=yaml.safe_load(file)
         
@@ -150,38 +280,45 @@ class cSpinHamiltonian:
         if "Rotation" in self.params:
             rot=self.params["Rotation"]["rot"]
         else:
-            rot="ZYX"
+            rot="ZYZ"
         #Hyperfine
         if "Hyperfine" in self.params:
             A=eval(self.params['Hyperfine']["A"])
             A_rot=eval(self.params['Hyperfine']["A_rot"])
-            A=tensorRotation(A,A_rot,str=rot)
+            A,RH=tensorRotation(A,A_rot,conv=rot,ret_R=True)
             self.hyperfineInteraction(A)
+            self.RH=RH
+            self.flags.append("HF")
         #Quadrupole
         if "Quadrupole" in self.params:
             Q=eval(self.params['Quadrupole']["Q"])
             Q_rot=eval(self.params['Quadrupole']["Q_rot"])
-            Q=tensorRotation(Q,Q_rot,str=rot)
+            Q,RQ=tensorRotation(Q,Q_rot,conv=rot,ret_R=True)
+            self.RQ=RQ
             if self.Idim>1:
                 self.quadrupoleInteractionAlt(Q)
+            self.flags.append("Q")
         #Electronic Zeeman
         if "E_Zeeman" in self.params:
             g=eval(self.params['E_Zeeman']["g"])
             g_rot=eval(self.params['E_Zeeman']["g_rot"])
-            g=tensorRotation(g,g_rot,str=rot)
+            g,RE=tensorRotation(g,g_rot,conv=rot,ret_R=True)
+            self.RE=RE
             self.setgE(g)
         #Nuclear Zeeman
         if "N_Zeeman" in self.params:
             if "M" in self.params["N_Zeeman"]:
                 M=eval(self.params["N_Zeeman"]["M"])
                 M_rot=eval(self.params["N_Zeeman"]["M_rot"])
-                M=tensorRotation(M,M_rot,str=rot)
+                M,RN=tensorRotation(M,M_rot,conv=rot,ret_R=True)
+                self.RN=RN
                 self.setM(M)
                 self.setgN(None)
             elif "g" in self.params["N_Zeeman"]:
                 g=eval(self.params["N_Zeeman"]["g"])
                 g_rot=eval(self.params["N_Zeeman"]["g_rot"])
-                g=tensorRotation(g,g_rot,str=rot)
+                g,RN=tensorRotation(g,g_rot,conv=rot,ret_R=True)
+                self.RN=RN
                 self.setM(None)
                 self.setgN(g)
             elif "mu" in self.params["N_Zeeman"]:
@@ -189,94 +326,339 @@ class cSpinHamiltonian:
                 self.setM(None)
                 self.setgN(mu*np.eye(3))
 
+
     #Calculate the zeeman interaction of the form muBgS, allowing for the same function to do nuclear and electronic
-    def zeemanInteraction(self,mu,B,g,S,dim):
+    def _zeemanInteraction(self,mu:float,B:np.array,g:np.matrix,S:np.matrix,dim:int)->np.ndarray:
+        """
+        PRIVATE FUNCTION
+        Calculates the nuclear or electronic Zeeman of the form
+            um*B.T@g@S.T
+        This should be called using electronicZeeman or nuclearZeeman, as this fills in most of the values        
+
+        Parameters
+        ----------
+        mu : float
+            The magneton value
+        B : (3,k) array
+            The magnetic field values to calculate at
+        g: (3,3) matrix
+            The tensor to operate on, 
+        S: (dim,3) matrix
+            The spin matrix to operate on
+        dim: int
+            (2J+1) with J for either the nuclear or electronic spin, 
+            used to calculate the missing dimension such that the return is self.dim x self.dim
+        Returns
+        -------
+        H: (k,self.dim,self.dim)
+            The Zeeman Hamiltonian
+
+        """
         HZ = mu*B.T@g@S.T
         #reshape to be Idim*Edim square matrix
-        #print(HZ.shape)
-        HZ = HZ.T.reshape(dim,dim)
-        HZ = np.kron(HZ,np.eye((self.dim)//dim))
-        #print(HZ.shape)
+            #First converts to a dim x dim, then use the kronecker product to add the missing dimension
+        HZ = np.array(HZ.T).reshape((dim,dim,-1))
+        
+        I=np.eye((self.dim)//dim)[:,:,np.newaxis]
+        HZ = np.kron(HZ,I)
+        
+        #enforce axis convention
+        HZ=np.moveaxis(HZ,-1,0)
         if type(self.H) is NoneType:
             self.H=np.zeros_like(HZ)
-        return HZ
+        return np.squeeze(HZ)
     
-    #calculates the electronic Zeeman, basically just fills in correct paramaters
-    def electronicZeeman(self,B,g=None):
+    def electronicZeeman(self,B:np.ndarray,g=None)->np.ndarray:
+        """
+        Calculates the electronic Zeeman, basically just fills in correct paramaters to the generic
+        function
+        
+        Parameters
+        ----------
+        B : (3,k) array
+            The magnetic field values to calculate at
+        g: np.matrix(dim,dim) or None
+            The tensor to operate on, 
+                - If none uses the previously setup one
+                - If not none, replaces the previous one
+        Returns
+        -------
+        H: (k,dim,dim)
+            The electronic Zeeman Hamiltonian
+
+        """
         #allows for call if g is set before, without having to pass again
         if type(g) is not NoneType:
             self.setgE(g)
-        self.HZE = self.zeemanInteraction(muB,B,self.gE,self.S,self.Edim)
+        self.HZE = self._zeemanInteraction(muB,B,self.gE,self.S,self.Edim)
         return self.HZE
     
     #calculates the nuclear Zeeman, basically just fills in correct paramaters
-    def nuclearZeeman(self,B,g=None):
+    def nuclearZeeman(self,B:np.ndarray,g=None)->np.ndarray:
+        """
+        Calculates the nuclear Zeeman, basically just fills in correct paramaters to the generic
+        function
+        
+        Parameters
+        ----------
+        B : (3,k) array
+            The magnetic field values to calculate at
+        g: np.matrix(dim,dim) or None
+            The tensor to operate on, 
+                - If none it checks whether gN or M was setup and does the correct call based 
+                  on needing muN or not
+                - If not none, sets the passed value as gN and goes from there
+        Returns
+        -------
+        H: (k,dim,dim)
+            The nuclear Zeeman Hamiltonian
+
+        """
         if type(g) is not NoneType:
             self.setgN(g)
         if type(self.M) is not NoneType and type(self.gN) is NoneType:
             #print("Using M")
-            self.HZN = self.zeemanInteraction(1,B,self.M,self.I,self.Idim)
+            self.HZN = self._zeemanInteraction(1,B,self.M,self.I,self.Idim)
         else:    
-            self.HZN = self.zeemanInteraction(muN,B,self.gN,self.I,self.Idim)
+            self.HZN = self._zeemanInteraction(muN,B,self.gN,self.I,self.Idim)
         return self.HZN
 
+    def dynamicH(self,B:np.ndarray,func:callable=None,static:bool=True)->np.ndarray:
+        """
+        Calculates the dynamic part of the hamiltonian, either from the passed function or by checking what dynamic terms have been passed
+        Parameters
+        ----------
+        B : (3,k) array
+            The magnetic field values to call the function on
+        func: callable or None
+            The function to use it should return a (dim, dim,k) array and take only B as a paramater
+            If None it will generate a function from the Zeeman paramaters
+        static: bool
+            If true add the static hamiltonian to the return
+        Returns
+        -------
+        H: (k,dim,dim)
+            The energy hamiltonian in J
+            static=True-> The total hamiltonian
+            static=False-> Just the dyanmic term at the passed Bs
+
+        """
+        if type(func)==type(None):
+            HD=np.zeros((B.shape[1],self.dim,self.dim),dtype=np.complex128)
+            if "ZE" in self.flags:
+                #print("Derivative: Electronic Zeeman")
+                HD+=self.electronicZeeman(B)
+            if "ZN" in self.flags:
+                #print("Derivative: Nuclear Zeeman")
+                #Note minus sign
+                HD-=self.nuclearZeeman(B)
+        else:
+            HD=func(B)
+            
+        
+        if static:
+            return np.array(self.H)[np.newaxis,...]+HD
+            #return np.array(self.H)[...,np.newaxis]+HD
+        else:
+            return HD
     #gets eigen energies as frequencies
-    def getEigFreq(self,H=None):
+    def getEigFreq(self,H:np.ndarray=None)->tuple[np.ndarray,np.ndarray]:
+        """
+        Gets the eigen frequencies (spectrum), and eigen vectros of the passed hamiltonian, 
+        It is important to note that the eigenvalues are given in frequency units whereas the vectors are in energy units, 
+        this is more numerically stable but care must be taken when comparing
+
+        Parameters
+        ----------
+        H : (k,dim,dim) array
+            The hamiltonian to use
+
+        Returns
+        -------
+        F: (k,dim)
+            The spectrum frequencies in (GHz)
+        V: (k,dim,dim)
+            The spectrum eigenvectors in (GHz)
+
+        """
+
+
         #can pass arbitrary hamiltonian or use static
         if H is None:
             H=self.H      
+        H=H/(h*1E9)
         E,V = np.linalg.eigh(H)
         #May need sorting but eigh should return everything in sorted order
-        # ind = np.argsort(E) #sort E into increasing values of eigen values
-        # V = V[:,ind] # arrange the columns in this order
-        # E = E[ind]
-        #E = -1*np.abs(E)*np.sign(E)
         E = -1*np.real(E)
-
+        #V=-1*V
         ind = np.argsort(E) #sort E into increasing values of eigen values
-        V = V[:,ind] # arrange the columns in this order
-        E = E[ind]
-            #print(np.sign((V[0,:])))
-        #print("Before: ",np.sign(V[:,0:3]))
-        
-        #enforce that all eigenvectors should start with a positive value
-        #V  = np.multiply(np.sign(V[0,:]),V)
-        #print("After",np.sign(V[:,0:3]))
-        F = E/(h*1e9)     
+        #print(len(E.shape))
+        if len(E.shape)!=1:
+            V=np.take_along_axis(V,ind[:,np.newaxis,:],axis=-1)
+            E=np.take_along_axis(E,ind,axis=-1)
+        else:
+            V=V[:,ind]
+            E=E[ind]
+        V=np.squeeze(V)
+        E=np.squeeze(E)
+
+        F = E#/(h*1e9)     
         return F,V
 
-    def calcBFOsc(self,B,theta,phi,dynamic=None,Vecs = False):
-        #sets the default dynamic term as both electronic and nuclear zeeman
-        if type(dynamic)==NoneType:
-            dynamic=lambda B: self.electronicZeeman(B)-self.nuclearZeeman(B)
-        #convert spherical Magnetic field to cartesian coords.
-        B =sphereCart(B,theta,phi)
-        #Calculate our hamiltonian at this timestep
-        HTemp =self.H+dynamic(B)
-        #get the eigen frequencies at this timestep
-        Freq,V = self.getEigFreq(HTemp)
-        Htran = dynamic(np.matrix([1,0,0]).T)
-        #print(Htran.shape,V[:,0].shape,type(V))
-        OS = self.TransitionStrength(V,Htran)
-        if Vecs==True:
-            return Freq,OS,V
+    
+   
+    
+    def gradient(self,V:np.ndarray,dH=None)->np.ndarray:
+        """
+        Calculates the first derivative of the eigenvalues based on the pertubation of the Hamiltonian
+        Parameters
+        ----------
+        V : (k,dim,dim) array
+            The eigenvectors at each of the k magnetic field values
+        dH: (dim,dim) array or None
+            The derivitive of the hamiltonian
+            If None it will Use the derivative calculated by the dynamic hamiltonian
+        Returns
+        -------
+        df: (k,dim,3)
+            The gradient vector calculated at each field strength for each energy level
+
+        """
+        if type(dH)==type(None):
+            dH=self.dH
+
+        Dx=matrixElem(V,dH[0,...],V)
+        Dy=matrixElem(V,dH[1,...],V)
+        Dz=matrixElem(V,dH[2,...],V)
+
+        S1=np.array([Dx,Dy,Dz])
+        S1=np.moveaxis(S1,0,-1)
+        return S1#.T#/(h*1E9)
+
+
+    def curvature(self,V:np.ndarray,F:np.ndarray,dH=None)->np.ndarray:
+        """
+        Calculates the matrix of second order partial derivative of the eigenvalues 
+        based on the pertubation of the Hamiltonian at each field strength
+
+        Parameters
+        ----------
+        V : (k,dim,dim) array
+            The eigenvectors at each of the k magnetic field values
+        F : (k,dim) array
+            The Frequencies at each of the k magnetic field values
+        dH: (dim,dim) array or None
+            The derivitive of the hamiltonian
+            If None it will Use the derivative calculated by the dynamic hamiltonian
+        Returns
+        -------
+        df: (k,dim,3,3)
+            The Curvature matrix calculated at each field strength for each energy level
+
+        """
+        if type(dH)==type(None):
+            dH=self.dH
+        
+        E=F
+
+        pdx=matrixElem(V,dH[0,...],V,diag=False)
+        pdy=matrixElem(V,dH[1,...],V,diag=False)
+        pdz=matrixElem(V,dH[2,...],V,diag=False)
+    
+        # we know there will be subtractions between the same energy levels so ignore the divide by zeroes
+        with np.errstate(divide='ignore'):
+            Tmat=eachElemFunc(E,E,axis=1).reshape(-1,self.dim,self.dim)
+            Tmat=1/Tmat
+        #Zero out the diagonal, I don't know if there's a better way to do this
+        di=np.diag_indices(self.dim)
+        Tmat[:,di[0],di[1]]=0
+
+        #Element of S matrix, We do an element wise multiplication with A and Tmat and then matrix multiply this with B
+        #Off diagonal terms are going to be mixed and unused so we just take the diagonal
+        SE=lambda A,B: np.diagonal(np.matmul(np.multiply(A,Tmat),B),axis1=-2,axis2=-1)
+
+        #get the full matrix
+        S=np.array([[SE(pdx,pdx),SE(pdx,pdy),SE(pdx,pdz)],[SE(pdy,pdx),SE(pdy,pdy),SE(pdy,pdz)],[SE(pdz,pdx),SE(pdz,pdy),SE(pdz,pdz)]])
+
+        #reorder the array axis such that the field axis is first
+        S=np.rollaxis(S,2,0)
+        S=np.rollaxis(S,-1,1)
+        S+=S.conj()
+        return S#/(h*1E9)
+    
+    def genDerivMatrix(self, func=None)->np.ndarray:
+        """
+        Generates the derivative matrix in this case assuming only linear (Zeeman) and constant (hyperfine,quadropole terms)
+        
+        Parameters
+        ----------
+        func: callable or None
+            The function to operate on
+            - if None calculates based on the dynamic funcition
+            - if Callable calulates across the identiy matrix
+        Returns
+        -------
+        df: (k,dim,3,3)
+            The Curvature matrix calculated at each field strength for each energy level
+        """
+        Bu=np.eye(3)
+
+        if type(func)==type(None):
+            dH=self.dynamicH(Bu,static=False)
         else:
-            return Freq,OS
-    def calcBOptParams(self,B):
-        HG = self.calcH(B)
-        FG,VG = self.getEigFreq(HG)
-        F=FG*1E3
+            dH= func(Bu)
+        dH=dH/(h*1E9)
+        self.dHx=dH[...,0]
+        self.dHy=dH[...,1]
+        self.dHz=dH[...,2]
+        self.dH = dH
+        return dH 
         
-        Fp = []
-        for l in range(3):
-            v = self.firstOrderEnergySensitivity(VG,self.A[l])
-            Fp.append(v)
-        Fp = np.array(Fp).T
-        Fpp = self.curvatureCalculationNaive(self.A[0],self.A[1],self.A[2],VG,FG,indiv=False).T#*spin.muN
-        
-        return (F,Fp,Fpp)
+#---------------------------------------------------------------------------------------------------------------------------------------
+#OLD CLASS FUNCTIONS
+#---------------------------------------------------------------------------------------------------------------------------------------
+    #transition strength for same hamiltonians
+    def TransitionStrength(self,V,O):
+        N = np.zeros((self.dim,self.dim),dtype = np.csingle)
+        #generate the 0 to dim array
+        a = np.arange(0,self.dim,dtype = int)
+        #get each matrix element as vectors
+        b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
+        a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
+        #if len(V.shape)>=2:
+        N=fermiElem(V[...,a],O,V[...,b])
+        #N=V[:,a].H@O@V[:,b]
+        #N=N.H@N
+        # N = np.zeros(self.dim**2,dtype = np.csingle)
+        # k=0
+        # # for i in range(1,self.dim-1):
+        # #     for j in range(i+1,self.dim):
+        # for i in range(self.dim):
+        #     for j in range(self.dim):
+        #         N[k] = fermiElem(V[:,i],O,V[:,j])
+        #         k+=1
+        return N.T#/(h*1E9)
+    
+    def initSweep(self,thetas,phis,Bs,fdim = None):
+        warnings.warn(obsWarning,DeprecationWarning)
+
+        if type(fdim)==NoneType:
+            fdim = [int(self.dim)]
+        elif not type(fdim)==list:
+            fdim=[fdim]
+        return np.zeros((len(thetas),len(phis),len(Bs),*fdim),dtype = np.csingle)
+        #transition strength for same hamiltonians
+        # This is a little bit hacky to work with higher dimensions but seems to work well enough
+    def firstOrderEnergySensitivity(self,V,A):
+        warnings.warn(obsWarning,DeprecationWarning)
+        #N = np.diag(V.H@A@V)
+        #return N.T/(h*1E9)
+        N=matrixElem(V,A,V)
+        return N.T#/(h*1E9)
+    
     def runMultiThreadedSweep(self,Bs):
         #if __name__ == '__main__':
+        warnings.warn(obsWarning,DeprecationWarning)
         F=np.zeros((len(Bs),self.dim))
         Fp=np.zeros((len(Bs),self.dim,3),dtype = np.csingle)
         Fpp=np.zeros((len(Bs),self.dim,3,3),dtype = np.csingle)
@@ -288,7 +670,7 @@ class cSpinHamiltonian:
         pool=Pool(4)
         result=pool.map(self.calcBOptParams,Bs)
         print(result)
-        return eachElemFunc(F,F,ax=1),eachElemFunc(Fp,Fp,ax=1),eachElemFunc(Fpp,Fpp,ax=1)
+        return eachElemFunc(F,F,axis=1),eachElemFunc(Fp,Fp,axis=1),eachElemFunc(Fpp,Fpp,axis=1)
         
         #Loops over a set of magnetic field vectors returning the calculated frequencies
         #Bs- b field magnitude
@@ -296,6 +678,7 @@ class cSpinHamiltonian:
         #phis -  phi angles
         #dynamic - dynamic component of the B field should be a lambda function of B dependant hamiltonian terms.
     def runBfieldSweep(self,Bs,thetas,phis, dynamic = None):
+        warnings.warn(obsWarning,DeprecationWarning)
         #sets the default dynamic term as both electronic and nuclear zeeman
         if type(dynamic)==NoneType:
             dynamic=lambda B: self.electronicZeeman(B)-self.nuclearZeeman(B)
@@ -320,75 +703,10 @@ class cSpinHamiltonian:
                     Freq[i,j,k,:],Vecs[i,j,k,:]=self.calcB(Bs[k],thetas[i],phis[j],dynamic)
         return Freq,Vecs
     
-    #transition strength for same hamiltonians
-    def TransitionStrength(self,V,O):
-        N = np.zeros((self.dim,self.dim),dtype = np.csingle)
-        #generate the 0 to dim array
-        a = np.arange(0,self.dim,dtype = int)
-        #get each matrix element as vectors
-        b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
-        a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
-        N=V[:,a].H@O@V[:,b]
-        N=N.H@N
-        # N = np.zeros(self.dim**2,dtype = np.csingle)
-        # k=0
-        # # for i in range(1,self.dim-1):
-        # #     for j in range(i+1,self.dim):
-        # for i in range(self.dim):
-        #     for j in range(self.dim):
-        #         N[k] = fermiElem(V[:,i],O,V[:,j])
-        #         k+=1
-        return N.T#/(h*1E9)
-
     
-   
-    #transition strength for same hamiltonians
-    def firstOrderEnergySensitivity(self,V,A):
-        N = np.diag(V.H@A@V)
-        return N.T/(h*1E9)
-
-    #transition strength for same hamiltonians
-    def firstOrderSensitivity(self,V,A):
-        # #N = np.zeros(self.dim**2,dtype = np.csingle)
-        # N = np.zeros((self.dim,self.dim),dtype = np.csingle)
-        # #generate the 0 to dim array
-        # a = np.arange(0,self.dim,dtype = np.int)
-        # #get each matrix element as vectors
-        # b = np.tile(a,self.dim) #tile, repeates the whole array dim times i.e. [0,1]->[0,1,0,1]
-        # a = np.repeat(a,self.dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
-        # N=((V[:,a].H)@A@V[:,b])
-        # print(N)
-
-        N = V.H@A@V
-        N = np.squeeze(np.asarray(N.reshape(self.dim**2)))
-        #alt = np.power(np.abs(alt),2)
-        #print(alt)
-
-        # for i in range(self.dim):
-        #     for j in range(self.dim):
-        #         if i==j:
-        #             #k+=1
-        #             continue
-        #         #N[k] = ((V[:,i].H)@A@V[:,j])
-        #         N[i,j] = ((V[:,i].H)@A@V[:,j])
-        #         #k+=1
-        #print(N)
-        #N = N.reshape(self.dim**2)
-        return N.T/(h*1E9)
-
-    #alternative curvature calculations that, calculates the H matricies given, a function A, and a pertubation matrix Bp
-    def curvatureCalculationAlt(self,A,Bp,V,F,indiv=False):
-        with np.errstate(divide='ignore'):
-            #split A into its x,y,z elements, and reshape into a dim x dim matrix
-            Hx = A(Bp[:,0])
-            Hy = A(Bp[:,1])
-            Hz = A(Bp[:,2])
-            
-            return self.curvatureCalculation(Hx,Hy,Hz,V,F,indiv=indiv)
-
-        
     #overload of above with seperated Hx,Hy and Hz elements
-    def curvatureCalculation(self,Hx,Hy,Hz,V,F,indiv=True,eig=True,transitions=None):
+    def curvatureCalculationOld(self,Hx,Hy,Hz,V,F,indiv=True,eig=True,transitions=None):
+        warnings.warn(obsWarning,DeprecationWarning)
         with np.errstate(divide='ignore'):
             #convert frequency back to energy, alternatively we could convert our eigenvectors to be frequencies but this
             # seems to cause numerical error issues
@@ -429,8 +747,18 @@ class cSpinHamiltonian:
                 else:
                     Es.append(SMat)
             return np.array(Es).T/(h*1E9)
-        
+    #alternative curvature calculations that, calculates the H matricies given, a function A, and a pertubation matrix Bp
+    def curvatureCalculationAlt(self,A,Bp,V,F,indiv=False):
+        warnings.warn(obsWarning,DeprecationWarning)
+        with np.errstate(divide='ignore'):
+            #split A into its x,y,z elements, and reshape into a dim x dim matrix
+            Hx = A(Bp[:,0])
+            Hy = A(Bp[:,1])
+            Hz = A(Bp[:,2])
+            
+            return self.curvatureCalculation(Hx,Hy,Hz,V,F,indiv=indiv)
     def curvatureCalculationNaive(self,Hx,Hy,Hz,V,F,indiv=True,eig=True): 
+        warnings.warn(obsWarning,DeprecationWarning)
         #there is known divide by zeros which we ignore
         with np.errstate(divide='ignore'):
             #split A into its x,y,z elements, and reshape into a dim x dim matrix
@@ -472,29 +800,59 @@ class cSpinHamiltonian:
         #print("pdbxx",pdB(0,1,Hx).shape)
             
             #SMat= np.matrix([[pdb(Hx,Hx),pdb(Hx,Hx),S(Nx,Nz)],[S(Ny,Nx),S(Ny,Ny),S(Ny,Nz)],[S(Nz,Nx),S(Nz,Ny),S(Nz,Nz)]])
-
-
-    def initSweep(self,thetas,phis,Bs,fdim = None):
-        if type(fdim)==NoneType:
-            fdim = [int(self.dim)]
-        elif not type(fdim)==list:
-            fdim=[fdim]
-        return np.zeros((len(thetas),len(phis),len(Bs),*fdim),dtype = np.csingle)
-    def genAMatrix(self,A,J,electronic=True):
-        Bu=np.eye(3)
-        Ar=[]
-        if electronic:
-            dim=self.Edim
+    def calcBFOsc(self,B,theta,phi,dynamic=None,Vecs = False):
+        warnings.warn(obsWarning,DeprecationWarning)
+        #sets the default dynamic term as both electronic and nuclear zeeman
+        if type(dynamic)==NoneType:
+            dynamic=lambda B: self.electronicZeeman(B)-self.nuclearZeeman(B)
+        #convert spherical Magnetic field to cartesian coords.
+        B =sphereCart(B,theta,phi)
+        #Calculate our hamiltonian at this timestep
+        HTemp =self.H+dynamic(B)
+        #get the eigen frequencies at this timestep
+        Freq,V = self.getEigFreq(HTemp)
+        Htran = dynamic(np.matrix([1,0,0]).T)
+        #print(Htran.shape,V[:,0].shape,type(V))
+        OS = self.TransitionStrength(V,Htran)
+        if Vecs==True:
+            return Freq,OS,V
         else:
-            dim=self.Idim
-        for j in range(3):
-            Ar.append(self.zeemanInteraction(1,Bu[:,j],A,J,dim))
-        self.A=Ar
-        return Ar
+            return Freq,OS
+    def calcBOptParams(self,B):
+        warnings.warn(obsWarning,DeprecationWarning)
+        HG = self.calcH(B)
+        FG,VG = self.getEigFreq(HG)
+        F=FG*1E3
+        
+        Fp = []
+        for l in range(3):
+            v = self.firstOrderEnergySensitivity(VG,self.A[l])
+            Fp.append(v)
+        Fp = np.array(Fp).T
+        Fpp = self.curvatureCalculationNaive(self.A[0],self.A[1],self.A[2],VG,FG,indiv=False).T#*spin.muN
+        
+        return (F,Fp,Fpp)
 
+#---------------------------------------------------------------------------------------------------------------------------------------
 
 #Fast spin operator calculation without loops, mainly as an exercise to the Ben, though offers a substantial speedup for large spins.
-def spinOperator(J,matricies=False):
+def spinOperator(J:float,matricies:bool=False)->np.matrix:
+    """
+    Generates the spin operator matricies
+
+    Parameters
+    ----------
+    J : float 
+        The spin value to generate the matricies from
+    matricies : bool
+        Whether to return the individual matricies or not
+    Returns
+    -------
+    Jmat: np.matrix (3,dim**2)
+        The spin matrix elements as a single matrix for easy calculations
+    Jx,Jy,Jz: tuple(np.matrix,np.matrix,np.matrix)
+        if `matricies==True` returns the individual (dim,dim) matricies
+    """
     dim = int(2*J+1)
 
     #generate the 0 to dim array
@@ -526,46 +884,83 @@ def spinOperator(J,matricies=False):
 
 
 #return the tensor A rotatated by the euler angles in angles
-def tensorRotation(A,angles,str='ZYX',dumb=False):
+def tensorRotation(A:np.matrix,angles:np.array,conv:str='ZYZ',dumb:bool=False,ret_R:bool=False):
+    """
+    Rotates a tensor by the given euler angles
+
+    Parameters
+    ----------
+    A : np.matrix (3,3) 
+        The matrix to rotate
+    angle: np.array (3)
+        The Euler angles to rotate by
+    conv: str
+        The Euler angle convention to use, defines the axis each rotation is about
+    dumb : bool
+        Mostly a testing flag to make sure things line up with brute forcing
+    ret_R:bool
+        Whether to return the rotation matrix alongside the vector
+    Returns
+    -------
+    RA: np.matrix (3,3)
+        The tensor rotated by the given angles
+    R: np.matrix (3,3)
+        if `ret_R==True` returns rotation matrix
+    """
     if dumb:
         R=np.eye(3)
         Rx = lambda a : np.matrix([[1,0,0],[0,np.cos(a),-np.sin(a)],[0,np.sin(a),np.cos(a)]])
         Ry = lambda a : np.matrix([[np.cos(a),0,np.sin(a)],[0,1,0],[-np.sin(a),0,np.cos(a)]])
         Rz = lambda a : np.matrix([[np.cos(a),-np.sin(a),0],[np.sin(a),np.cos(a),0],[0,0,1]])
         for i,a in enumerate(angles):
-            if str[i]=="Z":
+            if conv[i]=="Z":
                 R=R@Rz(a)
-            elif str[i]=="Y":
+            elif conv[i]=="Y":
                 R=R@Ry(a)
-            elif str[i]=="X":
+            elif conv[i]=="X":
                 R=R@Rx(a)
     else:
-        R = np.asmatrix(Rotation.from_euler(str,angles).as_matrix())
-    return R@A@R.T
+        R = np.asmatrix(Rotation.from_euler(conv,angles).as_matrix())
+    if ret_R:
+        return R@A@R.T,R
+    else:
+        return R@A@R.T
 
-
-# def rotMatrixDumb(a):
-#     c = np.cos(a)
-#     s=  np.sin(a)
-
-#     X = np.matrix([[1,0,0],[0,c[0],-s[0]],[0,s[0],c[0]]])
-#     Y = np.matrix([[c[1],0,s[1]],[0,1,0],[-s[1],0,c[1]]])
-#     Z = np.matrix([[c[2],-s[2],0],[s[2],c[2],0],[0,0,1]])
-    
-#     return Z@Y@Z
 
 #performs a function between each element of A and every element of B, mainly used in getting transition frequencies but kept general
 #
-def eachElemFunc(A,B,ax=0,func=np.subtract, nosymm=False):
-    dim = (A.shape[ax])
+def eachElemFunc(A:np.ndarray,B:np.ndarray,axis:int=1,func:callable=np.subtract, nosymm:bool=False)->np.ndarray:
+    """
+    Performs an operation between each element of A and each element of B across the given axis
+    This is mostly used to calculate transition and hence defaults to subtraction across the first axis
+    Parameters
+    ----------
+    A : np.ndarray (...,i,...)
+        The first array
+    B : np.ndarray (...,j,...)
+        The second array
+    axis : int
+        The axis to operate over
+    func: Callable
+        The operation to perform should be of the signature `R=func(A,B)`
+        Defaults to subtraction
+    nosymm : bool
+        Removes elemnts operating on the opposite case i.e. only includes func(a,b) not func(b,a)
+        This offers no calculation speedup, vectorisation means its generally quicker to post select
+    Returns
+    -------
+    res: np.ndarray (...,i*j,...)
+        The result of the operation on each element
+    """
+    dim = (A.shape[axis])
     
     #tile takes a tuple of axis to tile across, we want to make sure only ax is non-one
     tdim = np.ones(len(B.shape))
-    tdim[ax]*=dim
+    tdim[axis]*=dim
     tdim = tuple(tdim.astype(int))
     
     A = np.tile(A,tdim)
-    B = np.repeat(B,dim,axis=ax)
+    B = np.repeat(B,dim,axis=axis)
     res= func(A,B)
     if nosymm:
         n=dim
@@ -574,44 +969,104 @@ def eachElemFunc(A,B,ax=0,func=np.subtract, nosymm=False):
     else:
         return res
 
-#converts spherical to cartesian coordinates
-def sphereCart(r,theta,phi):
-    #return r*np.matrix([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)]).T
-    return r*Rotation.from_euler('yz',[theta,phi]).as_matrix()@np.matrix([0,0,1]).T
 
-#returns the unit vector from the given spherical coords theta,phi
-def sphereUnit(vals,unit=True,str='yz'):
-    RM = Rotation.from_euler(str,vals).as_matrix()
-    if unit:
-        return RM@np.matrix([0,0,1]).T
-    else:
-        return RM
-#converts euler angles to spherical coordinate theta,phi. I think this works in all cases but double check
-def eulerToSphere(angles,str):
-    R =  Rotation.from_euler(str,angles).as_euler('ZYZ')
-    theta = R[1]
-    phi = R[0]
-    return theta,phi
 
-#converts euler angles to spherical theta,phi. More robust performs rotation on zero intialised vector and caluclates coords 
-def eulerToSphereRobust(angles,str):
-    R =  np.asmatrix(Rotation.from_euler(str,angles).as_matrix)
-    u = sphereCart(1,0,0)
-    res = R@u
-    theta = np.arccos(res[2]/1)
-    phi = np.arctan2(res[1],res[0])
-    return theta,phi
+def matrixElem(Vi:np.ndarray,O:np.matrix,Vj:np.ndarray,diag:bool=False):
+    '''
+    Calculates all sets of <Vi|O|Vj>, given two eigen vectors, Vi,Vj and a operator O
+    Parameters
+    ----------
+    Vi: np.ndarray (k,dim,dim)
+        The First set of eigen vectors The vectors are selected by the final dimension
+    O: np.matrix (dim,dim)
+        The operator matrix 
+    Vj: np.ndarray (k,dim,dim)
+        The Second set of eigen vectors
+    diag: bool
+        Whether to only return the diagonal elements useful for things of the form <Vi|O|Vi>
+    Returns
+    -------
+    N: np.array(k,dim,dim) or (k,dim) if diag==True
+        The calculated matrix elements
+    '''
+    VH=Vi.conj().swapaxes(-2,-1) #ndarrays don't have a .H, but anything larger than 2D can't be a matrix
+    N=VH@O@Vj
+    if diag:
+        N=np.diagonal(N,axis1=-2,axis2=-1)
+    return N
 
-#calculates |<i|O|j>|^2, given two eigen vectors, Vi,Vj and a hamiltonian H
-def fermiElem(Vi,O,Vj):
-    E = Vi.H@O@Vj
-    E = E.H@E
+def fermiElem(Vi,O,Vj,diag=True):
+    '''
+    Calculates all sets of |<Vi|O|Vj>|^2, given two eigen vectors, Vi,Vj and a operator O
+
+    Parameters
+    ----------
+    Vi: np.ndarray (k,dim,dim)
+        The First set of eigen vectors The vectors are selected by the final dimension
+    O: np.matrix (dim,dim)
+        The operator matrix 
+    Vj: np.ndarray (k,dim,dim)
+        The Second set of eigen vectors
+    diag: bool
+        Whether to only return the diagonal elements
+    Returns
+    -------
+    N: np.array(k,dim,dim) or (k,dim) if diag==True
+        The calculated matrix elements
+    '''
+    E=matrixElem(Vi,O,Vj,diag)
+    
+    #E.H@E is probably quicker but really annyoing given the dimensions
+    E=np.square(np.abs(E))
+    
     if E.shape==1:
         return (E).item()
     else:
         return E
-#returns two index arrays such that each index from 0 to dim interacts with every other index
-def tilerepidx(dim):
+    
+
+
+def TransitionStrength(V1,V2,O,dim):
+    '''
+    Calculates The transition strength as per
+    |<Vi|O|Vj>|^2, given two eigen vectors, Vi,Vj and a operator O
+    
+    Parameters
+    ----------
+    Vi: np.ndarray (k,dim,dim)
+        The First set of eigen vectors The vectors are selected by the final dimension
+    O: np.matrix (dim,dim)
+        The operator matrix 
+    Vj: np.ndarray (k,dim,dim)
+        The Second set of eigen vectors
+    dim: int
+        The dim of the given matricies
+    Returns
+    -------
+    N: np.array(k,dim**2)
+        The calculated Transitions strengths 
+    '''
+    alt = fermiElem(V1,O,V2,diag=False)#V1.H@O@V2
+    alt = np.squeeze(np.asarray(alt.reshape(-1,dim**2)))
+    
+    return alt#/(h*1E9)#np.diag(N)#/(h*1E9)
+
+def tilerepidx(dim:int):
+    """
+    returns two index arrays such that each index from 0 to dim interacts with every other index
+    Probably actually just a flat meshgrid
+    
+    Parameters
+    ----------
+    dim: int
+        The size of the array
+    Returns
+    -------
+    a: np.ndarray (dim**2)
+        indicies in the order [0,1,...,dim]*dim
+    b np.ndarray (dim**2)
+        indices in the order [0,0,0,1,1,1,...,[dim,dim,dim]*dim]
+    """
     #generate the 0 to dim array
     a = np.arange(0,dim,dtype = int)
     #get each matrix element as vectors
@@ -619,54 +1074,28 @@ def tilerepidx(dim):
     a = np.repeat(a,dim) #repeat, repeates each element dim times in order i.e. [0,1]->[0,0,1,1]
     return a,b
 
-#transitions strength for differing energy levels and not assiociated with a hamiltonian
-def TransitionStrength(V1,V2,O,dim):
-    # if V1.ndim<3:
-    #     V1= V1[np.newaxis]
-    # if V2.ndim<3:
-    #     V2= V2[np.newaxis]
-
-    #a,b = tilerepidx(dim)
-    
-
-    alt = V1.H@O@V2
-    alt = np.squeeze(np.asarray(alt.reshape(dim**2)))
-    alt = np.power(np.abs(alt),2)
-    #alt = np.diag(alt.H@alt)
-    
-
-    #%timeit np.diag(alt.H@alt)
-    #print("Alt: ", alt.shape,alt)
-    # N = np.zeros(int(dim**2),dtype = complex)
-    # k=0
-    # for i in range(0,dim):
-    #        for j in range(0,dim):
-    #          N[k]=np.abs(V1[:,i].H@O@V2[:,j])**2
-    #          #N[k] = fermiElem(V1[:,i],O,V2[:,j])
-    #          k+=1
-    # # print("OrigL ",N.shape, N)
-    # print("diff ",np.nanmean(np.abs(alt-N)/np.abs(alt)),np.nanstd(np.abs(alt-N)/np.abs(alt)))
-    # print("ratio ",np.nanmean(np.abs(N)/np.abs(alt)),np.nanstd(np.abs(N)/np.abs(alt)))
-    # #np.nan
-    return alt.T#np.diag(N)#/(h*1E9)
-
-
-#Runs through a set of frequencies and optionally transition strengths and gets a weight for each output frequency
-#based on the gaussian centered at each true frequency, with amplitude given by the oscilator strengths (1 if these are not provided)
-#and with a supplied width defining line thickness.
-#Parameters are:
-    #- freq- the true frequencies
-    #- Bs -  the magnetic field values
-    #- OS - [optional] the oscillator strengths, they are assumed to be 1 if not provided
-    #- width - the gaussian c factor, relates to line width
-    #- cmap - the colourmap to plot with
-    #- plot - whether to plot or return the values to plot
-    #- title -  the title of the plot
-#returns are:
-    #None- if plot==True
-    #gx,gy,gz- if plot== False, these define the x,y and z/colour information to be plotted
-
 def transitionPixelPlot(freq,Bs,OS=None,frange = None,width=1/10,plot=True,cmap = 'bone',title="Optical Transitions"):
+    """
+    Runs through a set of frequencies and optionally transition strengths and gets a weight for each output frequency
+    based on the gaussian centered at each true frequency, with amplitude given by the oscilator strengths (1 if these are not provided)
+    and with a supplied width defining line thickness.
+
+    Parameters
+    ----------
+        - freq- the true frequencies
+        - Bs -  the magnetic field values
+        - OS - [optional] the oscillator strengths, they are assumed to be 1 if not provided
+        - width - the gaussian c factor, relates to line width
+        - cmap - the colourmap to plot with
+        - plot - whether to plot or return the values to plot
+        - title -  the title of the plot
+    Returns
+    -------
+        None- if plot==True
+        gx,gy,gz- if plot== False, these define the x,y and z/colour information to be plotted
+
+    """
+    
     #get the frequncy limits based on true range if nothing is provided
     if type(frange)==NoneType:
         yi = np.linspace(np.min(freq),np.max(freq),Bs.shape[-1])
@@ -705,6 +1134,62 @@ def transitionPixelPlot(freq,Bs,OS=None,frange = None,width=1/10,plot=True,cmap 
         return gx,gy,1-np.real(gz).T
 
 
+
+def properRotation(j,n):
+    """
+    Determines the character table element for a proper rotation
+    j: The spin
+    n: the fraction of rotation coming from the symmetry operation
+    """
+    return np.divide(np.sin((j+1/2)*2*np.pi/n),np.sin(np.pi/n))
+
+#---------------------------------------------------------------------------------------------------------------------------------------
+#SPHERICAL COORDINATE FUNCTIONS
+#---------------------------------------------------------------------------------------------------------------------------------------
+
+def sphereCart(r,theta,phi):
+    '''
+    converts spherical to cartesian coordinates
+    '''
+    #return r*np.matrix([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)]).T
+    return r*Rotation.from_euler('yz',[theta,phi]).as_matrix()@np.matrix([0,0,1]).T
+
+def sphereUnit(vals,unit=True,conv='yz'):
+    '''
+    returns the unit vector from the given spherical coords theta,phi
+    '''
+    RM = Rotation.from_euler(conv,vals).as_matrix()
+    if unit:
+        return RM@np.matrix([0,0,1]).T
+    else:
+        return RM
+def eulerToSphere(angles,conv):
+    '''
+    converts euler angles to spherical coordinate theta,phi. 
+    I think this works in all cases but double check
+    '''
+    R =  Rotation.from_euler(conv,angles).as_euler('ZYZ')
+    theta = R[1]
+    phi = R[0]
+    return theta,phi
+
+def eulerToSphereRobust(angles,conv):
+    '''
+    converts euler angles to spherical theta,phi. More robust performs rotation on zero intialised vector and caluclates coords 
+    '''
+    R =  np.asmatrix(Rotation.from_euler(conv,angles).as_matrix)
+    u = sphereCart(1,0,0)
+    res = R@u
+    theta = np.arccos(res[2]/1)
+    phi = np.arctan2(res[1],res[0])
+    return theta,phi
+
+#---------------------------------------------------------------------------------------------------------------------------------------
+#OLD FUNCTIONS: Not neccassarily depreciated but haven't been tested in a while
+#---------------------------------------------------------------------------------------------------------------------------------------
+
+
+
 #Calculates an absorbtion spectra, by stacking gaussians at each transition
 def absorptionSpectra(freq,FWHM,Os,xs):
     #calculate the standard deviation from the broadnening FWHM
@@ -716,15 +1201,23 @@ def absorptionSpectra(freq,FWHM,Os,xs):
         a+= gaussian(Os[i],xs,f,c)
     return a
 
-#Calculates and plots the absorbtion spectra for a single magnetic field strength B at angle, theta, phi
-    #S1- State one, i.e. ground
-    #S2 - State two, i.e. excited
-    #B,theta,phi- Magnetic field strength and angle
-    #OS-Transition matrix
-    #Xs- X values
-    #FWHM- inhomogeneous broadinening term.
-    #dyn -  dynamic term of the hamiltonian
 def quickAbsorbtion(S1,S2,B,theta,phi,OS,xs,FWHM,dyn=lambda S,B: S.electronicZeeman(B), print = True):
+    """
+    Calculates and plots the absorbtion spectra for a single magnetic field strength B at angle, theta, phi
+    Parameters
+    ----------
+    S1- State one, i.e. ground
+    S2 - State two, i.e. excited
+    B,theta,phi- Magnetic field strength and angle
+    OS-Transition matrix
+    Xs- X values
+    FWHM- inhomogeneous broadinening term.
+    dyn -  dynamic term of the hamiltonian
+
+    Returns
+    ----------
+    """
+
     fg,Vg,eVg = S1.calcB(B,theta,phi,dynamic=lambda B:dyn(S1,B),Vecs=True)
     fe,Ve,eVe = S2.calcB(B,theta,phi,dynamic=lambda B:dyn(S2,B),Vecs=True)
 
@@ -746,144 +1239,6 @@ def quickAbsorbtion(S1,S2,B,theta,phi,OS,xs,FWHM,dyn=lambda S,B: S.electronicZee
     else:
         return A
 
-#Generates the x,y,z A maticies of the form A*j, I.e. M*I for nuclear zeeman
-def genAMatrix(A,J):
-    Ar=[]
-    for j in range(3):
-        Ap=0
-        for i in range(3):
-            Ap+=A[j,i]*J[i]
-        Ar.append(Ap)
-    return Ar
+#---------------------------------------------------------------------------------------------------------------------------------------
 
-
-#returns a spin operator or all spin matricies for a given spin J
-def spinOperatorOld(J,matricies = False):
-    kdelta = lambda a,b: int(a==b)
-    dim = int(2*J+1)
-
-    Jx = np.zeros([dim,dim],dtype=np.csingle)
-    Jy = np.full_like(Jx,0)
-    Jz = np.full_like(Jx,0)
-
-
-    for i in range(dim):
-        for j in range(dim):
-
-            #fixes mismatch between python zero indexing and spin matrix 1 start
-            a = i+1
-            b = j+1
-            
-            #calculates spin matricies based purely on indicies
-            Jx[i,j] = (1/2)*(kdelta(a,b+1)+kdelta(a+1,b))*np.emath.sqrt((J+1)*(a+b-1)-a*b)
-            Jy[i,j] = (1j/2)*(kdelta(a,b+1)-kdelta(a+1,b))*np.emath.sqrt((J+1)*(a+b-1)-a*b)
-            Jz[i,j] = (J+1-a)*kdelta(a,b)
-    
-    if matricies==True:
-        return Jx,Jy,Jz
-    else:
-        #return an x by 3 matrix where each column is, the matrix elements of each spin matrix
-        S = hstack((Jx.reshape((-1,1)),Jy.reshape((-1,1)),-Jz.reshape((-1,1))))
-        return S
-    return S,Jx,Jy,Jz
-
-
-#returns the index of Zefoz points of a dataset A
-def ZEFOZidx(A,ax=0):
-    #selects out all zero crossings along the given axis
-    idx = zero_crossings(A,0)
-    idy = zero_crossings(A,1)
-    idz = zero_crossings(A,2)
-
-
-    Zfx=three_axis_zero(idx)
-    Zfy=three_axis_zero(idy)
-    Zfz=three_axis_zero(idz)
-    ind = np.vstack([Zfx,Zfy,Zfz])
-    ind =np.unique(ind[:,0:4],axis=0)
-    # idx = idx[np.where(idx[:,4]==0)]
-    # idy = idy[np.where(idy[:,4]==1)]
-    # idz = idz[np.where(idz[:,4]==2)]
-    
-    #print(idx.shape,idy.shape)
-    #print(idx.shape)
-    #ind = np.vstack([idx,idy,idz])
-    #print(ind.shape)
-    #ind=idz
-    
-    #groups the ids by the first four indicies, (theta,phi,B,transition),
-    #and calculates the sum of the fifth axis (x,y,z), where the +1 accounts for the discrepency of x being missing or a crossing
-    #x_u,y_s = group_by(id[:,0:4]).sum(id[:,4]+1)
-    
-    #print(id)
-    #x_u,i_s,y_s=np.unique(ind[:,0:4],axis=0,return_counts=True,return_index=True)
-    
-    
-    #print(id)
-    #if the above sum is 6, i.e. zero crossing present in x,y,z, consider this  a ZEFOZ point.
-    #zf = np.argwhere(y_s>=3)
-    #print(y_s[zf])
-    
-    #select the remaining indexes where these zefoz point appear
-    #ind = x_u[zf[:,0],:]
-    return ind.astype(int)
-
-def three_axis_zero(a):
-    x_u,i_s,y_s=np.unique(a[:,0:4],axis=0,return_counts=True,return_index=True)
-    #if the above sum is 3, i.e. zero crossing present in x,y,z, consider this  a ZEFOZ point.
-    zf = np.argwhere(y_s==3)
-    #print(y_s[zf].T)
-    #select the remaining indexes where these zefoz point appear
-    return x_u[zf[:,0],:]
-
-
-#Locates zero crossings in a along the specified axis ax
-def zero_crossings(a,ax):
-    ZC=np.argwhere(np.diff(np.sign(a),axis=ax))
-    #ZC[:,ax]+=1
-    return ZC
-
-def connectedPoints(ZP):
-    #get all points that differ from their neighbours by at most one
-    spid=np.argwhere(np.abs(np.diff(ZP[:,0:4],axis=0))>1)[:,0].flatten()+1
-    spidt=np.argwhere(np.diff(ZP[:,3],axis=0))[:,0].flatten()+1
-    #print()
-    #print(spid,spidt)
-    
-    spidx=np.concatenate((spid,spidt))
-    #print(spidx)
-    CP = np.split(ZP,spidx,axis=0)
-    return CP
-
-def connectedRegion(ZP):
-    CP=connectedPoints(ZP)
-    CR = []
-
-    for r in CP:
-        #print(r[:,0],r[:,1],r[:,2])
-        xv=([np.min(r[:,0]),np.max(r[:,0])+1])
-        yv=([np.min(r[:,1]),np.max(r[:,1])+1])
-        zv=([np.min(r[:,2]),np.max(r[:,2])+1])
-        CR.append([xv,yv,zv])
-    return CR
-
-def nonSymmetricBs(Bmax,pts,iPlane=np.array([1,1,1])):
-    """
-    Generates a set of points, that span the cube with corners \pm Bmax, 
-    but not double counting the inversion symmetry across the plane perpendicular to iPlane
-    """
-    Bxi=np.linspace(-Bmax,Bmax,pts)
-    Byi = np.linspace(-Bmax,Bmax,pts)
-    Bzi = np.linspace(-Bmax,Bmax,pts)
-
-    Bsi = np.array(np.meshgrid(Bxi,Byi,Bzi)).reshape(3,-1)
-    idx=np.squeeze(np.where(np.dot(iPlane,Bsi)>=0))
-    return Bsi[:,idx]
-
-def properRotation(j,n):
-    """
-    Determines the character table element for a proper rotation
-    j: The spin
-    n: the fraction of rotation coming from the symmetry operation
-    """
-    return np.divide(np.sin((j+1/2)*2*np.pi/n),np.sin(np.pi/n))
+#---------------------------------------------------------------------------------------------------------------------------------------

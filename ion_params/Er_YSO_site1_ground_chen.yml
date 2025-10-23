@@ -1,0 +1,24 @@
+#Data Source
+        #Hyperfine interactions of Er3+ ions in Y2SiO5: Electron paramagnetic resonance in a tunable microwave cavity
+        # by Yu-Hui Chen et.al
+        # DOI: 10.1103/PhysRevB.97.024419
+Spin:
+  Espin: 1/2
+  Ispin: 7/2
+Rotation:
+  rot: "ZYZ"
+E_Zeeman:
+  g: np.diag([2.253,0.057,14.61])
+  g_rot: np.array([205.87,55.33,29.3])*np.pi/180
+N_Zeeman:
+  mu: "-0.56"
+Hyperfine:
+  A: np.diag([260.1,22,1524.9])*1e6*h
+  A_rot: np.array([203.3,48.59,26.2])*np.pi/180
+Quadrupole:
+  Q: np.diag([9.03,15.7,-24.73])*1e6*h
+  Q_rot: np.array([151.87,49.48,296.67])*np.pi/180
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])

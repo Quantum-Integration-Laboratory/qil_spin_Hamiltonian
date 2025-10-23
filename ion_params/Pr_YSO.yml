@@ -1,3 +1,6 @@
+#Data Source
+  # Fraval et. al. Method of Extending Hyperfine Coherence Times in Pr3 :Y2SiO5
+  # https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.92.077601
 Spin:
   Espin: "0"
   Ispin: 5/2

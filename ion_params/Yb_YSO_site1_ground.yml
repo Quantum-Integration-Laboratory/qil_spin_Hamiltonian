@@ -1,15 +1,18 @@
 #Data Source
-  # Tiranov et. al. Sub-second spin and lifetime-limited optical coherences in Yb:CaW, Supplementary
-  # https://arxiv.org/abs/2504.01592
+        #Spectroscopic study of hyperfine properties in 171Yb3+:Y2SiO5
+        # by Alexey Tiranov et.al.
+        #doi:10.1103/PhysRevB.98.195110
 Spin:
   Espin: "1/2"
   Ispin: "1/2"
+Rotation:
+  rot: "ZXZ"
 Hyperfine:
-  A: np.matrix([[3.0819,0,0],[0,3.0819,0],[0,0,-0.789]])*1e9*h
-  A_rot: np.array([0,0,0])
+  A: np.diag([0.481,1.159,5.251])*1e9*h
+  A_rot: np.array([72.25,92.11,63.11])*np.pi/180
 E_Zeeman:
-  g: np.matrix([[3.916,0,0],[0,3.916,0],[0,0,-1.446]])
-  g_rot: np.array([0,0,0])
+  g: np.diag([0.31,1.60,6.53])
+  g_rot: np.array([72.8,88.7,66.2])*np.pi/180
 N_Zeeman:
   mu: "0.987"
 Oscillator:

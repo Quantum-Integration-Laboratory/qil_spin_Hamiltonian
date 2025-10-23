@@ -1,493 +1,241 @@
-This code plots the energy levels of a system defined by the spin hamiltonian, consisting of some combination of the terms below:
-$$H = \underbrace{\mu_{B}\times B\times g\times S}_{\textrm{Electronic Zeeman}}+\underbrace{I\times A\times S}_{hyperfine}-\underbrace{\mu_{n}\times B\times g_{n}\times I}_{\textrm{Nuclear Zeeman}}+\underbrace{I\times Q\times I}_{Quadrupole}$$
+# Spin Hamiltonian
+This code is designed to implement a model of the spin hamiltonian. This was initially designed with the intention of finding Zero First Order Zeeman (ZEFOZ) points though has expanded in scope somewhat since then.
 
-As a note notation I refer to the hyperfine and quadrapole as the static hamiltonian with respect to the magnetic field, and the zeeman terms as the dynamic hamiltonian with respect to the magnetic field.
+Two main files are implemented the main `spin_hamiltonian.py` with most of the functions and `search.py` which is intended for implementing search functions though is a bit limited for now.
 
+# Theory 
 
-```python
-import numpy as np
-import spin_hamiltonian as spin
-from scipy.spatial.transform import Rotation
-import matplotlib.pyplot as plt
-import matplotlib.colors as clr
-from copy import deepcopy
-```
+Spin Hamiltonains should consist of some combination of the form:
+$$ H = \underbrace{I\times A\times S}_{\textrm{hyperfine}}+\underbrace{I\times Q\times I}_{Quadrupole}+\underbrace{\mu_{B}\times B\times g\times S}_{\textrm{Electronic Zeeman}}-\underbrace{\mu_{n}\times B\times g_{n}\times I}_{\textrm{Nuclear Zeeman}} $$
 
-# $Yb^{3+}:YVO_{4}$ Detailed example
+The I and S matricies are of fixed form generated from the electronic and nuclear spin degrees respectively. We track the size of these matricies through the paramater `Edim` and `Idim` respectively (collectively `Jdim`) with size $(2J+1)$. for ease of calculation these are reshaped into a `Jdim x 3` matrix, such that the first column consits of all the elements of the $J^x$ matrix the second $J^y$ ect.
 
-The initialisation of the spin hamiltonian class calculates our spin matricies from the given electronic and nuclear spins where each matrix element is of the form:
-$$J^{x}_{ij} = \frac{1}{2}(\delta_{i,j+1}+\delta_{i+1,j})\sqrt{(J+1)(i+j-1)-ij}$$
-$$J^{y}_{ij} = \frac{i}{2}(\delta_{i,j+1}-\delta_{i+1,j})\sqrt{(J+1)(i+j-1)-ij}$$
-$$J^{z}_{ij} = (J+1-i)\delta_{ij}$$
+$$ J^{x}_{ij} = \frac{1}{2}(\delta{i,j+1}+\delta_{i+1,j})\sqrt{(J+1)(i+j-1)-ij} $$ 
+$$ J^{y}_{ij} = \frac{i}{2}(\delta{i,j+1}-\delta_{i+1,j})\sqrt{(J+1)(i+j-1)-ij} $$ 
+$$ J^{z}_{ij} = (J+1-i)\delta{ij} $$
 
-This is then reshaped into a $(2J+1)\times 3$ matrix where each column is made of the elements of the above matricies, in order x,y,z.
+The hyperfine (A), Quadruople (Q), and Zeeman (g and $g_n$), tensors will be more dependant on the species used and must be entered manually, this will be explained in more detial below. In general particularly for low symmetry systems these will consist of three elements of a diagonal matrix and three rotation elements ($\alpha, \beta, \gamma$), which define a rotation in euler notation, it is also important to note which notation this rotation is done in. This maps the measured data to a more universal lab or crystal frame. This is done through the tensor rotation below
+$$A= R(\alpha,\beta,\gamma)\times A\times R^T(\alpha,\beta,\gamma)$$
 
+We seperate the hamiltonian into two parts the static hamiltonian which is not dependant on external factors, namely the magnetic field. And the dynamic term which is dependant on things like the magnetic field. In general the static term is pre calculated and the dynamic calculated as needed. The final resulting hamiltonian will be a square matrix with side length `(Edim x IDim)`
 
-```python
-#spin Operators of Yb:YVO:
-Espin = 1/2
-Ispin = 1/2
+From here the hamiltonian is converted into energy units, and the eigenvectors and values are easily calculated, though some care is taken to ensure these are in the correct order. An example of the calculated energeyl levels for Yb:YVO is shown below. 
 
-#Initialise the class with its electronic and nuclear spin, for both ground and excited state
-ground = spin.cSpinHamiltonian(Espin,Ispin)
-excited = spin.cSpinHamiltonian(Espin,Ispin)
-
-```
-
-Setup A tensors for the hyperfine interaction, In general these consist of a diagonal $A_{xx},A_{yy}A_{zz}$ matrix and some euler rotation around $\alpha,\beta,\gamma$ angles. For $Yb^{3+}:YVO_{4}$ there is no rotation so we use just use the diagonal matrix, but perform the zero rotation for completeness. We do not include a quadrapole interaction.
-
-
-```python
-#A tensor ground state
-A_G = np.matrix([[2.99792458e10*0.0225,0,0],[0,2.99792458e10*0.0225,0],[0,0,-2.99792458e10*0.1608]])*spin.h
-#A tensor Excited state
-A_E = np.matrix([[3.37e9,0,0],[0,3.37e9,0],[0,0,4.86e9]])*spin.h
-
-
-#rotated tensors
-A_G = spin.tensorRotation(A_G,[0,0,0])
-A_E = spin.tensorRotation(A_E,[0,0,0])
-```
-
-Same as above for the $g$ tensor, we do not include a nuclear zeeman interaction
-
-
-```python
-#electronic Zeeman interaction:
-
-#g tensor ground state
-g_G = np.matrix([[0.85,0,0],[0,0.85,0],[0,0,-6.08]])
-#g tensor Excited state
-g_E = np.matrix([[1.7,0,0],[0,1.7,0],[0,0,2.51]])
-
-
-
-#tensor rotation
-g_G = spin.tensorRotation(g_G,[0,0,0])
-g_E = spin.tensorRotation(g_E,[0,0,0])
-
-#Pass our g tensors to the class so they can be used later
-ground.setgE(g_G)
-excited.setgE(g_E)
-
-
-```
-
-As the hyperfine and quadrupole interaction terms are static with the magnetic field we calculate them outside the loop.
-If either of these terms aren't needed we don't need to call these functions
-
-
-```python
-#Pre calculate our hyperfine interactions
-ground.hyperfineInteraction(A_G)
-excited.hyperfineInteraction(A_E)
-
-pass
-
-```
-
-Sets up operators for optical transition strengths, given by
-$$f_{ij}\propto \left|\left<i\right|\hat{O}\left|j\right>\right|^{2}$$
-The $\hat{O}$ operators are related to the crystal symmetry and are generated from character tables such as on page 32 of [2010_Powell_Symmetry, Group Theory, and the Physical Properties of Crystals](https://www.dropbox.com/home/QIL_Resources/BookSections?preview=2010_Powell_Symmetry%2C+Group+Theory%2C+and+the+Physical+Properties+of+Crystals.pdf).[^1]
-
-For spin transitions we can use some subset of the dynamic hamiltonian.
-
-[^1]: Link may not work but should be in the dropbox
-
-
-```python
-odim = ground.dim//2
-OS_par = np.block([[-1*np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
-OS_perp = np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
-OS_perp_T = np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])
-
-
-```
-
-Mainloop for each B field value the following is performed:
-- The B field is converted from spherical to cartesian coordinates
-- We calculate our total hamiltonian consisting of the static hyperfine and/or quadrapole and the dynamic zeeman terms.
-- We calculate the eigenvalues and eigenvectors of the hamiltonian, converting the eigenvalues to frequencies.
-- We calculate the transition strength between each energy level based on the eigenvectors of the excited and ground states
-- We calculate the spin transition probabilities based on the dynamic hamiltonian.
-
-
-```python
-#setup the loop, here it is easier to run the loop outside of the class
-thetas = [np.pi/2+0*np.pi/180]#note we apply a small pertubation to our angle to better match experiments
-phis = [0]
-Bs=np.linspace(0E-3,500E-3,500)
-#Bs=[0]
-
-
-#sets the default dynamic term as both electronic and nuclear zeeman
-FreqG = ground.initSweep(thetas,phis,Bs)
-FreqE = excited.initSweep(thetas,phis,Bs)
-
-OS = ground.initSweep(thetas,phis,Bs,ground.dim**2)
-OS_SG = ground.initSweep(thetas,phis,Bs,ground.dim**2)
-OS_SE = excited.initSweep(thetas,phis,Bs,excited.dim**2)
-
-CS_G = ground.initSweep(thetas,phis,Bs,4)
-CS_E = excited.initSweep(thetas,phis,Bs,4)
-
-print(CS_G.shape)
-
-Bac = np.matrix([0,0,1]).T
-
-AC = np.eye(3)
-
-#our loop
-for i in range(len(thetas)):
-    for j in range(len(phis)):
-        for k in range(len(Bs)):
-            #convert spherical Magnetic field to cartesian coords.
-            B =spin.sphereCart(Bs[k],thetas[i],phis[j])
-            #Calculate our hamiltonian at this B Field
-            HG = ground.H+ground.electronicZeeman(B)
-            #get the eigen frequencies and vectors at this B field
-            FG,VG = ground.getEigFreq(HG)
-            FreqG[i,j,k,:]=FG
-            #As above for excited state
-            HE = excited.H+excited.electronicZeeman(B)
-            FE,VE = excited.getEigFreq(HE)
-            FreqE[i,j,k,:]=FE
-            
-            #calculate all transition strengths
-                #the optical version takes two sets of eigenvectors and an operator
-            OS[i,j,k,:] = spin.TransitionStrength(VG,VE,OS_par,ground.dim)
-                #the spin version is tied to the class taking only one set of eigen values, and a hamiltonian operator
-            OS_SG[i,j,k,:]=ground.TransitionStrength(VG,ground.electronicZeeman(Bac))
-            OS_SE[i,j,k,:]=excited.TransitionStrength(VE,excited.electronicZeeman(Bac))
-            
-            
-            CS_G[i,j,k,:]=ground.curvatureCalculation(AC,VG,FG,indiv=True)
-            CS_E[i,j,k,:]=excited.curvatureCalculation(AC,VE,FE,indiv=True)
-
-
-```
-
-    (1, 1, 500, 4)
-    
-
-Plotting of energy levels for both the ground and excited state.
-
-
-```python
-
-#Plot our energy levels
-plt.plot(Bs*1E3,np.squeeze(np.real(FreqG[0,0,:,:])))
-plt.title("Ground State Energies")
-plt.xlabel(r"$B_{0}$ (mT)")
-plt.ylabel("Energy (GHz)")
-plt.show()
-plt.close()
-plt.plot(Bs*1E3,np.squeeze(np.real(FreqE[0,0,:,:])))
-plt.title("Excited State Energies")
-plt.xlabel(r"$B_{0}$ (mT)")
-plt.ylabel("Energy (GHz)")
-plt.show()
-plt.close()
-```
-
-
-    
 ![png](README_files/README_16_0.png)
-    
 
-
-
-    
-![png](README_files/README_16_1.png)
-    
-
-
-Determination of transition energies as the difference in energy level between each state and every other state.
-
-Additionally repeats various vectors to make up larger vectors containing all optical and spin transitions.
-
-
-```python
-#gets the transition values between each energy level
-    #eachElemFunc calculates some function (default) subtraction between each of its two inputs
-freq_def = np.real(spin.eachElemFunc(FreqE[0,0,:,:],FreqG[0,0,:,:],ax=1))
-G_freq = np.real(spin.eachElemFunc(FreqG[0,0,:,:],FreqG[0,0,:,:],ax=1))
-E_freq = np.real(spin.eachElemFunc(FreqE[0,0,:,:],FreqE[0,0,:,:],ax=1))
-
-
-#Sorts our oscillator strengths to remove redundant axis
-OS_s = np.real(np.squeeze(OS[0,0,:,:]))
-OS_s_SG = np.squeeze(OS_SG[0,0,:,:])
-OS_s_SE = np.squeeze(OS_SE[0,0,:,:])
-
-#repeats Bstack to ensure correct dimensions for both optical and full transition plots
-Bstack = np.tile(Bs,(ground.dim**2*1,1)).T
-BBstack = np.tile(Bs,(ground.dim**2*3,1)).T
-
-#stack all transitions and frequencies allowing them to be plotted together.
-freq = np.hstack([freq_def,G_freq,E_freq])
-OS_stack= np.real(np.hstack([OS_s,OS_s_SG,OS_s_SE]))
-
-
-```
-
-Nice plotting, generates a pixel value at each magnetic field and frequency coordinate based on a gaussian spread
-
-
-```python
-yi = np.linspace(-12,12,500)
-cmapc = plt.cm.get_cmap('bone').copy()
-
-spin.transitionPixelPlot(freq_def,Bs,frange=yi,width = 0.07,cmap=cmapc)
-spin.transitionPixelPlot(freq_def,Bs,OS=OS_s,frange=yi,width = 0.08,cmap=cmapc,title="$Yb^{3+}:YVO_{4}$ Optical transitions with strengths")
-gx,gy,gz= spin.transitionPixelPlot(freq_def,Bs,OS=OS_s,frange=yi,width = 0.08,plot=False)
-plt.pcolor(gx*1E3,gy,gz,shading='auto',cmap=cmapc,norm=clr.Normalize())
-plt.xlabel('Magnetic Field strength (mT)')
-plt.ylabel('Detuning (GHz)')
-plt.title("$Yb^{3+}:YVO_{4}$ Optical transitions with strengths")
-plt.savefig("../Yb_transitions.png")
-plt.show()
-plt.close()
-#
-
-plt.show()
-plt.close()
-```
-
-
-    
-![png](README_files/README_20_0.png)
-    
-
-
-
-    
+In order to then calculate transition frequencies, we can then subtract each energy level from every other energy level in either the same or a different hamiltonian. Transistion strengths can be included, calculated by the fermi element of the overlap of the eigenvectors mediated by some matrix. The calculation of these matrices is generally non-trivial and left as an excersize ot the reader.
+$$ O=\left|\left<\psi_n\right|M\left|\psi_n\right>\right|^2 $$
 ![png](README_files/README_20_1.png)
-    
 
+## Derivatives for ZEFOZ finding
+Also of interest is particularly in the case of finding ZEFOZ or clock transitions is the first and second derivatives of the hamiltonian. 
 
+### First order
+Coming from pertubation theory the first order sensitivty $\vec{S}_1$ of the transition $f_n$ with respect to magnetic field is given by
 
-    
-![png](README_files/README_20_2.png)
-    
+$$ \vec{S}_{1} = \frac{\partial f_{n}}{\partial B_{x}}\vec{i}+\frac{\partial f_{n}}{\partial B_{y}}\vec{j}+\frac{\partial f_{n}}{\partial B_{z}}\vec{k} $$
 
+With 
+$$ \frac{\partial f_{n}}{\partial B_{i}} = \left<\psi_{n}\right|\frac{\partial H}{\partial B_{i}}\left|\psi_{n}\right>  $$
+In the case of only zeeman terms in our dynamic hamiltonian the derivative of the hamiltonian will simply be its value at the unit vector along each of the cardinal directions.
 
-Alternate plotting, easier but not as nice, but much quicker.
+The sensitivty of the transition is then:
+$$ \frac{\partial f_{nm}}{\partial B_{i}}=\frac{\partial f_{n}}{\partial B_{i}}-\frac{\partial f_{m}}{\partial B_{i}} $$
 
-The scatter plot uses oscillator strength as the colour value of a point
+### Second Order
+The second order is slightly complicated but still an extension from pertubation theory given by
+$$ \vec{S}_{2} = \begin{pmatrix}\frac{\partial^2 f}{\partial B_{x}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{x}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{x}\partial B_{z}}\\\frac{\partial^2 f}{\partial B_{y}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{y}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{y}\partial B_{z}}\\\frac{\partial^2 f}{\partial B_{z}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{z}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{z}\partial B_{z}}\end{pmatrix} $$
 
+With
+$$ \frac{\partial^2 f}{\partial B_{i}\partial B_{j}} =\sum_{m\neq n}\frac{1}{f_{n}-f_{m}}\left<\psi_{m}\right|A_{i}\left|\psi_{n}\right>\left<\psi_{n}\right|A_{j}\left|\psi_{m}\right> $$
 
+A few tricks are played in code to ease this calculation that are worth highlighting here.
+We first calculate all the matrix elements.
+$$ \partial_{i}^{nm}=\bra{\psi_{n}}\frac{\partial H}{\partial B_{i}}\ket{\psi_{m}} $$
+We then create a matrix $T$ of all transition energies such that
+$$ T_{nm}=\frac{1}{E_n-E_{m}}$$
+Enforcing that $T_{nn}\equiv 0$. Each element can then be calculated as
+$$ \frac{\partial^{2}}{\partial B_{i}\partial B_{j}}f_{n}=\textrm{diag}((\mathbf{\partial}_{i}\odot T)\cdot \mathbf{\partial}_{j}) $$
+With $\odot$ the hadamard or element wise product and $\cdot$ matrix multiplication.
 
+With this the we can determine the field induced dephasing rate
+$$ \frac{1}{\pi T_{2}} = \vec{S}_{1}\cdot\Delta\vec{B}+\Delta\vec{B}\cdot\vec{S}_{2}\cdot\Delta\vec{B} $$
 
+# Installation
+The package should be installed with a package manager. 
+1. Clone this repo to a local location.
+2. Direct a terminal to the `spin_package` directory i.e.e `cd SOMEPATH/spin_package`
+3. From this terminal run `pip install --editable .`
+    - This means when further updates are pulled they are automatically recognised by the package
+
+# spin_hamiltonian.py
+In terms of actually using the code. Most of the code is handled by the `cSpinHamiltonian` class it can be instantiated manually or by passing a YAML file containing all the relevant paramaters.
+
+An interactive version fo this code is found in [example_usage.ipynb](./example_usage.ipynb)
+
+> [!NOTE]
+> - Hamiltonian input Paramaters should be in Joules, Magnetic fields in T.
+> - Output frequency units will be in GHz.
+> - For calculating across `(3,k)` magentic field values work has been done to a abide by the following axis convention `(k,d,...)` for all outputs
+>   - k, is the number of field values
+>   - d, is the dimension of number of energy levels
+>   - any additional dimensions follow
+>   - This is not the most natural ordering python wise but makes it easy to plot and multiply across the final dimension
+
+## Initialising
+
+### Manual Setup
+We will use Pr:YSO as an example as it has relatively through but still pedagocially relevant paramaters. As a Kramers ion it has effective electronic spin 0, a nuclear spin of 5/2, an anisotropic nuclear g tensor, and a quadropole effect. All paramaters come from Fraval, 2004
+
+We first define our various paramaters
 ```python
+Espin=0
+Ispin=5/2
 
-#cmapc = plt.cm.get_cmap('bone').copy()
-cmapc.set_under('k',alpha=0)
+#Natural units of the program are GHz, T and radians so conversions must be made
+M=np.matrix(np.diag([2.86,3.05,11.56]))*10*1E6*h
+Q=np.matrix(np.diag([-0.5624,0.5624,4.4450]))*1E6*h
+alpha,beta,gamma=np.array([-99.8,55.8,-40])*np.pi/180
 
-plt.plot(BBstack,freq)
-#plt.ylim([-7,9])
-plt.title("Full optical and spin transition set")
-plt.xlabel('Magnetic Field strength (mT)')
-plt.ylabel('Detuning (GHz)')
-plt.show()
-plt.close()
+#No convention for rotation is specified in the data source, but ZYZ is typical
+M=spin.tensorRotation(M,[alpha,beta,gamma],conv='ZYZ')
+Q=spin.tensorRotation(Q,[alpha,beta,gamma],conv='ZYZ')
 
-plt.scatter(BBstack,freq,marker='.',c=1-OS_stack,edgecolors='none',norm=clr.Normalize(vmin=0.001),cmap=cmapc)
-plt.title("Full optical and spin transitions with transition strength as colour")
-plt.xlabel('Magnetic Field strength (mT)')
-plt.ylabel('Detuning (GHz)')
-#plt.ylim([-10,10])
+#Instantiates the class and sets up dimensions and spin matricies
+ground = spin.cSpinHamiltonian(Espin,Ispin)
 
-plt.show()
-plt.close()
+#pass these matricies to the class
+ground.setM(M)
+#This will calculate and store the interaction in our static hamiltonian
+ground.quadrupoleInteraction(Q)
+#Access the static hamiltonian it big so lets just print its shape
+print(ground.H.shape) 
 
 ```
+### Import Paramaters
+Paramaters can also be imported using a set of paramater stored in a YAML, this basically runs through the above depending on what values are in the file. 
 
+> [!CAUTION]
+> In order to implement easy conversion and matrix operations, the `eval()` function is called on most passed inputs. Do not run this on files without first checking they aren't doing something weird.
 
-    
-![png](README_files/README_22_0.png)
-    
-
-
-
-    
-![png](README_files/README_22_1.png)
-    
-
-
-
+We will use the [Pr_YSO.yml](./ion_params/Pr_YSO.yml), file that contains the same paramaters. The spin values can be overridden on the import for ease of including multiple isotopes.
 ```python
-yi = np.linspace(-6,6,500)
+#Much simpler
+groundI=spin.hamilFromYAML('./ion_params/Pr_YSO.yml')
+#We can also change the spin values if we want to look at other isotopes
+    #Lets pretend Pr has another stable isotope
+groundN=spin.hamilFromYAML('./ion_params/Pr_YSO.yml',IOveride=3/2)
 
-th = np.pi/2+2*np.pi/180
-ph = 0
-
-#dyn = ground.electronicZeeman(B)
-
-B = 100E-3
-B=0
-A_par = spin.quickAbsorbtion(ground,excited,B,th,ph,OS_par,yi,275E-3,dyn=lambda S,B: S.electronicZeeman(B),print=False)
-A_per = spin.quickAbsorbtion(ground,excited,B,th,ph,OS_perp,yi,275E-3,dyn=lambda S,B: S.electronicZeeman(B),print=False)
-
-plt.plot(yi,A_par)
-plt.plot(yi,0.5*A_per)
-plt.xlabel("Detuning (GHz)")
-plt.ylabel("Absorption Coefficient (arb.)")
-plt.legend(["$E\parallel c$","$E\perp c$"])
-plt.savefig("../Yb_absorbtion.png")
-
-
-plt.show()
-plt.close()
 ```
+#### Full import Paramaters:
+> [!Note] 
+> There are multiple conventions used for quadrupole tensors 
+> - `mu`, this assumes an isotropic value and $g_{n}=\mu I_{3}$
+> - `gn`, this can be anisotropic $g_{n}=g_{n}$
+> - `M`, some papers include nuclear magniton in the tensor $g_n=M/\mu_{n}$
+> In manual mode we can use `setgN` or `setM` 
+> If multiple are defined in the YAML it takes the first in the order `M,gn,mu`
 
+```yaml
+Rotation:
+    Rot: (str) The Euler rotation convention
+Hyperfine:
+    A: (eval) The A matrix
+    A_rot: (eval) The array of alpha,beta,gamma to rotate by
+Quadrupole:
+    Q: (eval) The Q matrix
+    Q_rot: (eval) The array of alpha,beta,gamma to rotate by
+E_zeeman:
+    g: (eval) The g matrix
+    g_rot: (eval) The array of alpha,beta,gamma to rotate by
+N_zeeman:
+    M: (eval) The M matrix
+    M_rot: (eval) The array of alpha,beta,gamma to rotate by
+    or
+    g: (eval) The g matrix
+    g_rot: (eval) The array of alpha,beta,gamma to rotate by
+    or
+    mu: (eval) The element mu
 
-    
-![png](README_files/README_23_0.png)
-    
+```
+## Running Code
+From here we likely want to evaluate at a range of magnetic field values. These should form a (3,k) array. If we aren't doing anything too fancy we can pass this to the dynamic N setup by the setup process.
 
-
-# ZEFOZ notes:
-Critical points occur when:
-$$\frac{\partial f_{nm}}{\partial B_{i}} = \left<\psi_{n}\right|A_{i}\left|\psi_{m}\right>=0$$
-
-Our sensitivity is the extension:
-$$\vec{S}_{1} = \frac{\partial f_{nm}}{\partial B_{x}}\vec{i}+\frac{\partial f_{nm}}{\partial B_{y}}\vec{j}+\frac{\partial f_{nm}}{\partial B_{z}}\vec{k}$$
-
-Maximum curvature given by the largest eigenvalue of $S_{2}$
-$$\vec{S}_{2} = \begin{pmatrix}\frac{\partial^2 f}{\partial B_{x}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{x}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{x}\partial B_{z}}\\\frac{\partial^2 f}{\partial B_{y}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{y}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{y}\partial B_{z}}\\\frac{\partial^2 f}{\partial B_{z}\partial B_{x}}&\frac{\partial^2 f}{\partial B_{z}\partial B_{y}}&\frac{\partial^2 f}{\partial B_{z}\partial B_{z}}\end{pmatrix}$$
-
-Where
-$$\frac{\partial^2 f}{\partial B_{i}\partial B_{j}} =\sum_{m\neq n}\frac{1}{f_{n}-f_{m}}\left[\left<\psi_{m}\right|A_{i}\left|\psi_{n}\right>\left<\psi_{n}\right|A_{j}\left|\psi_{m}\right>+c.c.\right]+G_{i,j}+G_{j,i} $$
-
-This gives our $T_{2}$ time at a ZEFOZ point:
-$$\frac{1}{\pi T_{2}} = \vec{S}_{1}\cdot\Delta\vec{B}+\Delta\vec{B}\cdot\vec{S}_{2}\cdot\Delta\vec{B}$$
-
-
+We can also define H ourselves, however there is the catch that the static hamiltonian will always be (dim,dim), where as the dynamic will have the addition of the sweep dimension (k,dim,dim). We can force any static terms to match using `np.array(Hs)[np.newaxis,...]`. We first convert it from a matrix to an ndarray allowing us to exceed hte two dimension limit. The new axis slicing then handles the rest.
 ```python
-#Plot our energy levels
-S2 = np.abs(np.squeeze(CS_E[0,0,:,0])-np.squeeze(CS_G[0,0,:,3]))
-plt.plot(Bs*1E3,np.sqrt(S2))
-S2 = np.abs(np.squeeze(CS_E[0,0,:,1])-np.squeeze(CS_G[0,0,:,2]))
-plt.plot(Bs*1E3,np.sqrt(S2))
-plt.title("Second Order Sensitivity")
-plt.xlabel(r"$B_{0}$ (mT)")
-plt.ylabel("Curvature $GHZ/T^{2}$")
+#generate a set of fields from zero to 100mT
+Bz=np.linspace(0,200*1E-3,200)
+#Unit vector along z
+uvec=np.matrix([0,0,1]).T
+
+#convert it to a vector along the our axis
+B=uvec*Bz
+
+#If we are doing simple things dynamicH suffices
+    # It automatically adds the static hamiltonian if static=True
+H=groundI.dynamicH(B)
+
+#This actually conceals a few important things so to write it out in full
+    #ground.H contains our static hamiltonian, 
+    #it doesn't know about the dimension of the magnetic field
+    #Using np.newaxis we can increase the dimension to match the zeeman data
+H=np.array(groundI.H)[np.newaxis,...]-groundI.nuclearZeeman(B)
+
+#get the eigen values F and Vectors
+F,V=groundI.getEigFreq(H)
+
+#Dimension convention makes is to aid such plotting
+plt.plot(Bz,F)
 plt.show()
-plt.close()
-plt.loglog(Bs,np.abs(np.squeeze(CS_G[0,0,:,:])))
+
+#Calculate the transitions, noting that our transitions always lie across axis 1
+T=spin.eachElemFunc(F,F,ax=1)
+plt.plot(Bz,T)
 plt.show()
-plt.close()
 ```
-
-
-    
-![png](README_files/README_25_0.png)
-    
-
-
-
-    
-![png](README_files/README_25_1.png)
-    
-
-
-# $Er^{3+}:Y_{2}SiO_{5}$ example/code dump
-Erbium has a few changes such as higher nuclear spin and rotated tensors, it is shown here but not walked through as nicely
-
-
+We can also calculate gradients and curvatures, though these are more annyoing to visualise.
 ```python
-#Erbium parameters
-Espin = 1/2
-Ispin = 7/2
+#This uses the default calculated hamiltonian derivative based on dynamicH
+df=groundI.firstDerivative(V)
 
-erbium = spin.cSpinHamiltonian(Espin,Ispin)
+#To be explicit we just calculate the gradient as the value at the Identity
+    #This generates the three x,y,z hamiltonian elements that are then seperated
+dH=-groundI.nuclearZeeman(np.eye(3))
+dH/=h*1E9 #Remember to convert to GHz
 
-#Setup Hyperfine interaction tensor
-A_Er = np.matrix([[139,0,0],[0,13,0],[0,0,-1604]])*spin.h*1E6 #from Jevon's group
-#Get euler angles for rotation
-ang_A_Er = np.array([262.2,94.07,81.9])*np.pi/180
-#rotate the tensor by the euler angle
-A_Er = spin.tensorRotation(A_Er,ang_A_Er,str='ZXZ')
+print("dH Shape: ",dH.shape)
 
-print("A: ",A_Er/(spin.h*1E6))
-
-#Setup quadrapole interaction tensor
-Q_Er = np.matrix([[6,0,0],[0,36.1,0],[0,0,-42.1]])*spin.h*1E6 #from Jevon's group
-#get the euler angles for rotation
-ang_Q_Er = np.array([142.81,77.5,16.8])*np.pi/180
-#rotate the tensor by the euler angles
-Q_Er = spin.tensorRotation(Q_Er,ang_Q_Er,str='ZXZ')
-
-print("Q: ",Q_Er/(spin.h*1E6))
-
-#Get the electronic zeeman g matrix
-g_Er = np.matrix([[0.99,0,0],[0,1.695,0],[0,0,15.05]]) #from Jevon's group
-
-#Euler angles
-ang_g_Er = np.array([261.98,100.16,97.25])*np.pi/180
-#rotated matrix
-g_Er = spin.tensorRotation(g_Er,ang_g_Er,str='ZXZ')
-
-#get the rotation matrix for the magnetic field
-RB = np.asmatrix(Rotation.from_euler('ZXZ',ang_g_Er).as_matrix())
-    
-
-print("g: ",g_Er)
-
-#get the nuclear zeeman g matrix
-gn_Er = -0.1618*np.eye(3)
-
-#Set our nuclear and electronic g matricies
-erbium.setgN(gn_Er)
-erbium.setgE(g_Er)
-
-#Pre calculate our hyperfine and quadrapole interactions
-erbium.hyperfineInteraction(A_Er)
-erbium.quadrupoleInteraction(Q_Er)
-pass
-#loop
-theta,phi = spin.eulerToSphere(ang_g_Er,str='ZXZ')
-thetas = [theta]
-phis = [phi]
-B0=np.linspace(-50E-3,50E-3,500)
-
-
-dyn = lambda B: erbium.electronicZeeman(B)-erbium.nuclearZeeman(B)
-FreqEr,Vs = erbium.runBfieldSweep(B0,thetas,phis,dynamic=dyn)
-
-
-print(Vs.shape)
-
-
-#Plot our energy
-plt.plot(B0*1E3,np.squeeze(-1*FreqEr[0,0,:,:]))
-plt.title("Erbium site 2 energies")
-plt.xlabel(r"$B_{0}$ (mT)")
-plt.ylabel("Energy (GHz)")
-#plt.savefig("erbium_Jevon.png")
+df=groundI.firstDerivative(V,dH=dH)
+plt.plot(Bz,df.real*uvec)
 plt.show()
-plt.close()
+
+
+ddf=groundI.curvatureCalculation(V,F)
+#plot the maximum eigenvalue as a single data point proxy
+Cmax=np.max(np.linalg.eig(ddf)[0],axis=-1)
+plt.plot(Bz,Cmax.real)
+plt.show()
 ```
+# search.py
+These functions are intended to take parts of the spin hamiltonian and run some form of optimisation on them
 
-    A:  [[-1.56522916e+03  2.17780656e+02 -1.24459973e+02]
-     [ 2.17780656e+02 -1.45016262e+01 -6.46942503e-01]
-     [-1.24459973e+02 -6.46942503e-01  1.27730784e+02]]
-    Q:  [[-10.41919978 -23.15069052  -3.1896074 ]
-     [-23.15069052 -19.62069555 -17.65555347]
-     [ -3.1896074  -17.65555347  30.03989534]]
-    g:  [[14.36548767 -1.77124464  2.40333094]
-     [-1.77124464  1.93114119 -0.42635471]
-     [ 2.40333094 -0.42635471  1.43837113]]
-    (1, 1, 500, 256)
-    
+# Major Changelog:
+## October 2025
 
-    C:\Users\neb16\AppData\Local\Programs\Python\Python39\lib\site-packages\matplotlib\cbook\__init__.py:1333: ComplexWarning: Casting complex values to real discards the imaginary part
-      return np.asarray(x, float)
-    
+This makes quite a few changes that are likely to not be backwards compatable
 
-
-    
-![png](README_files/README_27_2.png)
-    
-
+- All functions are now vectorised with respect to passed magnetic field
+    - Convention is field values as the first dimension, transition as the last
+    - Some old functions still exist but have been moved or renamed and a depreciation warning added
+        - They will never actually be depreciated
+- Added docstrings and type hints to all major functions
+    - I did get somewhat lazy but generally if it doesn't have a docstring think twice about using it.
+- `tensorRotation` 
+    - `str` has been changed to `conv` as in convention as it previously overwrote the built in keyword
+- `eachElemFunc`
+    - Changed `ax` to `axis` to be closer to numpy
+- `genAmatrix`->`genDerivMatrix`
+    - Clearer name now that I know what this is actually doing
+- `firstOrderEnergySensitivty`-> `gradient`
+- `CurvatureCalculation`->`curvature`
+- Swapped `QuadrupoleAlt` and `Quadrupole`

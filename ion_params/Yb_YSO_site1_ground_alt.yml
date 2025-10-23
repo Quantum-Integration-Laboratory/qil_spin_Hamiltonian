@@ -1,0 +1,23 @@
+#Data Source
+        #Spectroscopic study of hyperfine properties in 171Yb3+:Y2SiO5
+        # by Alexey Tiranov
+        #doi:10.1103/PhysRevB.98.195110
+Spin:
+  Espin: "1/2"
+  Ispin: "1/2"
+Hyperfine:
+  A: np.matrix([[4.847,-1.232,-0.244],
+               [-1.232,1.425,-0.203],
+               [-0.244,-0.203,0.618]])*1e9*h
+  A_rot: np.array([0,0,0])*np.pi/180
+E_Zeeman:
+  g: np.matrix([[6.072,-1.460,-0.271],
+               [-1.460,1.845,-0.415],
+               [-0.271,-0.415,0.523]])
+  g_rot: np.array([0,0,0])*np.pi/180
+N_Zeeman:
+  mu: "0.987"
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])
