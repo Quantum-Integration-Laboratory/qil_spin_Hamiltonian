@@ -1,0 +1,6 @@
+numpy
+matplotlib
+scipy
+numpy_indexed
+yaml
+pathos

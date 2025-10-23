@@ -1,0 +1,19 @@
+#Data Source
+      # Just a good place to break a few paramaters 
+Spin:
+  Espin: "1/2"
+  Ispin: "1/2"
+Rotation:
+  rot: "ZXZ"
+Hyperfine:
+  A: np.diag([1,2,3])*1e9*h
+  A_rot: np.array([0,0,0])*np.pi/180
+E_Zeeman:
+  g: np.diag([10,-20,30])
+  g_rot: np.array([45,0,0])*np.pi/180
+N_Zeeman:
+  mu: "0.987"
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])

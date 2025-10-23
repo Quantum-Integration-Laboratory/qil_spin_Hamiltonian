@@ -1,0 +1,12 @@
+#Data Source
+  # Fraval et. al. Method of Extending Hyperfine Coherence Times in Pr3 :Y2SiO5
+  # https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.92.077601
+Spin:
+  Espin: "0"
+  Ispin: 5/2
+Quadrupole:
+  Q: np.matrix(np.diag([-0.5624,0.5624,4.4450]))*1E6*h
+  Q_rot: np.array([-94,58.1,-20.7])*np.pi/180
+N_Zeeman:
+  M: np.matrix(np.diag([2.86,3.05,11.56]))*10*1E6*h
+  M_rot: np.array([-99.7,55.7,-40])*np.pi/180
