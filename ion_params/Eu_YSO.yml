@@ -1,9 +1,14 @@
+#Data Source
+  # Longdell et. al. Characterization of the hyperfine interaction in europium-doped yttrium orthosilicate and europium chloride hexahydrate
+  # https://link.aps.org/doi/10.1103/PhysRevB.74.195101
+Rotation:
+  rot: 'ZYZ'
 Spin:
   Espin: "0"
   Ispin: 5/2
 Quadrupole:
-  Q: -1*np.matrix(np.diag([-2.735,2.735,12.3797]))*1E6*spin.h
+  Q: np.matrix(np.diag([-2.735,2.735,12.3797]))*1E6*h
   Q_rot: np.array([-39.3,76.49,149.9])*np.pi/180
 N_Zeeman:
-  M: np.matrix(np.diag([0.443,0.5682,1.1193]))
+  M: np.matrix(np.diag([0.443,0.5682,1.1183]))*1E7*h
   M_rot: np.array([144.9,34.9,98.1])*np.pi/180

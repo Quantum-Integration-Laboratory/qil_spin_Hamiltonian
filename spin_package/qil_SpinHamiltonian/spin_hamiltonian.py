@@ -28,7 +28,7 @@ NoneType=type(None)
 
 obsWarning="This function is old and probably ineffecient. It may well never be deleted but you probably should avoid it anyway."
 
-def hamilFromYAML(filename:str,EOveride:float=None,IOveride:float=None):
+def hamilFromYAML(filename:str,EOveride:float=None,IOveride:float=None,AScale:float=None):
     """
     Creates a hamiltonian from the paramaters contained in a YAML file
     Parameters
@@ -39,7 +39,8 @@ def hamilFromYAML(filename:str,EOveride:float=None,IOveride:float=None):
         Allows a different electronic spin to be used, probably less useful
     EOveride: float
         Allows a different nuclear spin to be used, useful for isotopes
-
+    Ascale: float
+        Allows a isotropic scaling factor on the hyperfine matrix, useful for isotopes
     Returns
     -------
     spin: cSpinHamiltonian
@@ -57,6 +58,8 @@ def hamilFromYAML(filename:str,EOveride:float=None,IOveride:float=None):
         I=eval(params["Spin"]["Ispin"])
     hamil=cSpinHamiltonian(E,I)
     hamil.importYAMLparams(filename)
+    if not type(AScale)==NoneType:
+        hamil.hyperfineInteraction(hamil.A*AScale)
     dH = hamil.genDerivMatrix()
     hamil.dH=dH
     return hamil
@@ -118,7 +121,7 @@ class cSpinHamiltonian:
         self.A=A
         #calculate the hyperfine interaction 
         self.HHF = (self.I)@A@(self.S).T
-        #reshape the hamiltonian to maintain dimension
+                #reshape the hamiltonian to maintain dimension
         self.HHF = self.HyperfineReshape()
         
         #if this is the first static parameter we calculate set the hamiltonian to it,
@@ -156,35 +159,15 @@ class cSpinHamiltonian:
             self.H+=self.HQP
         return self.HQP
     
-    #slightly less effecient?, using operator form.
-    def quadrupoleInteractionAlt(self,Q:np.matrix)->np.matrix:
-        """
-        Slightly more explicit way to calculates the quadrupole interaction and adds it to the static Hamiltonian
-            IQI
-        Parameters
-        ----------
-        Q: np.matrix (3,3)
-            The Quadrupole tensor
-        Returns
-        -------
-        HQP: np.matrix (dim,dim)
-            The calculated hamiltonian term
-        """
-        self.Q=Q
-        Ispin = (self.Idim-1)/2
-        Is = spinOperator(Ispin,matricies=True)
-        H= 0
-        for i in range(3):
-            for j in range(3):
-                H+=Q[i,j]*Is[i]@Is[j]
-        self.HQP=H
-        #if we haven't initialised the static hamiltonian set it to the quadrupole
-        #otherwise add the quadrupol term
-        if type(self.H) is NoneType:
-            self.H=self.HQP
-        else:
-            self.H+=self.HQP
-        return self.HQP
+
+        # self.HQP=H
+        # #if we haven't initialised the static hamiltonian set it to the quadrupole
+        # #otherwise add the quadrupol term
+        # if type(self.H) is NoneType:
+        #     self.H=self.HQP
+        # else:
+        #     self.H+=self.HQP
+        # return self.HQP
 
 
 
@@ -210,7 +193,7 @@ class cSpinHamiltonian:
         d=H[:,3].reshape((Idim,Idim))
         if self.Edim==1:
             return a
-        return np.block([[a,b.T],[c.T,d]])
+        return np.block([[a,b],[c,d]])
 
 
     #setters for our g paramaters
@@ -282,7 +265,7 @@ class cSpinHamiltonian:
         else:
             rot="ZYZ"
         #Hyperfine
-        if "Hyperfine" in self.params:
+        if "Hyperfine" in self.params and self.Idim>1:
             A=eval(self.params['Hyperfine']["A"])
             A_rot=eval(self.params['Hyperfine']["A_rot"])
             A,RH=tensorRotation(A,A_rot,conv=rot,ret_R=True)
@@ -290,23 +273,23 @@ class cSpinHamiltonian:
             self.RH=RH
             self.flags.append("HF")
         #Quadrupole
-        if "Quadrupole" in self.params:
+        if "Quadrupole" in self.params and self.Idim>1:
             Q=eval(self.params['Quadrupole']["Q"])
             Q_rot=eval(self.params['Quadrupole']["Q_rot"])
             Q,RQ=tensorRotation(Q,Q_rot,conv=rot,ret_R=True)
             self.RQ=RQ
             if self.Idim>1:
-                self.quadrupoleInteractionAlt(Q)
+                self.quadrupoleInteraction(Q)
             self.flags.append("Q")
         #Electronic Zeeman
-        if "E_Zeeman" in self.params:
+        if "E_Zeeman" in self.params and self.Edim>1:
             g=eval(self.params['E_Zeeman']["g"])
             g_rot=eval(self.params['E_Zeeman']["g_rot"])
             g,RE=tensorRotation(g,g_rot,conv=rot,ret_R=True)
             self.RE=RE
             self.setgE(g)
         #Nuclear Zeeman
-        if "N_Zeeman" in self.params:
+        if "N_Zeeman" in self.params and self.Idim>1:
             if "M" in self.params["N_Zeeman"]:
                 M=eval(self.params["N_Zeeman"]["M"])
                 M_rot=eval(self.params["N_Zeeman"]["M_rot"])
@@ -357,15 +340,13 @@ class cSpinHamiltonian:
         HZ = mu*B.T@g@S.T
         #reshape to be Idim*Edim square matrix
             #First converts to a dim x dim, then use the kronecker product to add the missing dimension
-        HZ = np.array(HZ.T).reshape((dim,dim,-1))
+        HZ = np.array(HZ).reshape((-1,dim,dim))
         
-        I=np.eye((self.dim)//dim)[:,:,np.newaxis]
-        HZ = np.kron(HZ,I)
-        
+        I=np.eye((self.dim)//dim)[np.newaxis,:,:]
+        return HZ,I
+        #HZ = np.kron(HZ,I)
         #enforce axis convention
-        HZ=np.moveaxis(HZ,-1,0)
-        if type(self.H) is NoneType:
-            self.H=np.zeros_like(HZ)
+        #HZ=np.moveaxis(HZ,-1,0)
         return np.squeeze(HZ)
     
     def electronicZeeman(self,B:np.ndarray,g=None)->np.ndarray:
@@ -390,7 +371,8 @@ class cSpinHamiltonian:
         #allows for call if g is set before, without having to pass again
         if type(g) is not NoneType:
             self.setgE(g)
-        self.HZE = self._zeemanInteraction(muB,B,self.gE,self.S,self.Edim)
+        HZ,I=self._zeemanInteraction(muB,B,self.gE,self.S,self.Edim)
+        self.HZE = np.squeeze(np.kron(HZ,I))
         return self.HZE
     
     #calculates the nuclear Zeeman, basically just fills in correct paramaters
@@ -418,9 +400,10 @@ class cSpinHamiltonian:
             self.setgN(g)
         if type(self.M) is not NoneType and type(self.gN) is NoneType:
             #print("Using M")
-            self.HZN = self._zeemanInteraction(1,B,self.M,self.I,self.Idim)
+            HZ,I = self._zeemanInteraction(1,B,self.M,self.I,self.Idim)
         else:    
-            self.HZN = self._zeemanInteraction(muN,B,self.gN,self.I,self.Idim)
+            HZ,I = self._zeemanInteraction(muN,B,self.gN,self.I,self.Idim)
+        self.HZN=np.squeeze(np.kron(I,HZ))
         return self.HZN
 
     def dynamicH(self,B:np.ndarray,func:callable=None,static:bool=True)->np.ndarray:
@@ -454,7 +437,10 @@ class cSpinHamiltonian:
                 HD-=self.nuclearZeeman(B)
         else:
             HD=func(B)
-            
+        if type(self.H) is NoneType:
+            print("Zeeman",HD.shape)
+            self.H=np.zeros((self.dim,self.dim))
+
         
         if static:
             return np.array(self.H)[np.newaxis,...]+HD
@@ -490,9 +476,7 @@ class cSpinHamiltonian:
         E,V = np.linalg.eigh(H)
         #May need sorting but eigh should return everything in sorted order
         E = -1*np.real(E)
-        #V=-1*V
         ind = np.argsort(E) #sort E into increasing values of eigen values
-        #print(len(E.shape))
         if len(E.shape)!=1:
             V=np.take_along_axis(V,ind[:,np.newaxis,:],axis=-1)
             E=np.take_along_axis(E,ind,axis=-1)
@@ -527,13 +511,13 @@ class cSpinHamiltonian:
         if type(dH)==type(None):
             dH=self.dH
 
-        Dx=matrixElem(V,dH[0,...],V)
-        Dy=matrixElem(V,dH[1,...],V)
-        Dz=matrixElem(V,dH[2,...],V)
+        Dx=matrixElem(V,dH[0,...],V,diag=True)
+        Dy=matrixElem(V,dH[1,...],V,diag=True)
+        Dz=matrixElem(V,dH[2,...],V,diag=True)
 
         S1=np.array([Dx,Dy,Dz])
         S1=np.moveaxis(S1,0,-1)
-        return S1#.T#/(h*1E9)
+        return np.real(S1)#.T#/(h*1E9)
 
 
     def curvature(self,V:np.ndarray,F:np.ndarray,dH=None)->np.ndarray:
@@ -584,7 +568,7 @@ class cSpinHamiltonian:
         S=np.rollaxis(S,2,0)
         S=np.rollaxis(S,-1,1)
         S+=S.conj()
-        return S#/(h*1E9)
+        return np.real(S)#/(h*1E9)
     
     def genDerivMatrix(self, func=None)->np.ndarray:
         """
@@ -608,12 +592,192 @@ class cSpinHamiltonian:
         else:
             dH= func(Bu)
         dH=dH/(h*1E9)
-        self.dHx=dH[...,0]
-        self.dHy=dH[...,1]
-        self.dHz=dH[...,2]
+        self.dHx=dH[0,...]
+        self.dHy=dH[1,...]
+        self.dHz=dH[2,...]
         self.dH = dH
         return dH 
         
+    def spinTransitionStrength(self,V:np.ndarray,O:np.matrix)->np.ndarray:
+        """
+        Calculates the fermi elements between two energy levels mediated by the passed operator
+        
+        Parameters
+        ----------
+        V: np.ndarray
+            The eigenvectors calculated at the range of field strengths
+        O: np.ndarray
+            The operator, in general this will be a pauli matrix. Just pass the 2x2 version the sizing will be handled
+        Returns
+        -------
+        OT: (k,dim**2)
+            The array of the oscillator strengths between each energy level of the hamiltonian
+        """
+        #Get the identity matrix that fixes the dimension, 
+        I=np.eye(self.dim//2)
+        Od=np.array(np.kron(O,I))
+        return np.squeeze(TransitionStrength(V,V,Od,self.dim))
+    
+
+class cMultiSpin():
+    def __init__(self,spins:list[cSpinHamiltonian],labels=None)->None:
+        """
+        Basically a wrapper that makes it easier to handle multiple spin systems.
+        In general this is useful for handling isotopes
+
+        Parameters
+        ----------
+        spins: list[cSpinHamiltonian]
+            The list of spin hamiltonians to handle
+
+        Returns
+        -------
+        self: cMultiSpin
+            The class
+        """
+        self.spins=spins
+        self.i=[0]+[s.dim for s in spins]
+        self.labels=labels
+    # def _multiDecorator(func):
+    #     """
+    #     Didn't end up being used in the end as the functions where slightly too different.
+    #     It would be nice to work out a way to use a decorator for things
+    #     """
+    #     def multiFunc(self,*args,**kwargs):
+    #         ret=[]
+    #         for i,s in enumerate(self.spins):
+    #            R=func(s,*args,**kwargs)
+    #            ret.append(R)
+    #         return ret
+    #     return multiFunc
+    def getEigFreq(self,B:np.ndarray,static:bool=True)->tuple[np.ndarray,np.ndarray]:
+        """
+        Handles the hamiltonian generation and calculation of frequencies and eigenvectors.
+        This must be called before any other function. 
+        This is the most different from the cSpinHamiltonian implementation as it combines a few functions
+            This is only setup to deal with the standard dynamic hamiltonian functions
+            We also can't nicely return the eigenvectors so these are stored in the class, and the transitions are returned instead
+
+        Parameters
+        ----------
+        B : (3,k) array
+            The magnetic field values to call the function on
+        static: bool
+            If true add the static hamiltonian to the return
+        Returns
+        -------
+        Fs: (k,dim) array
+            The calculated eigenfrequencies
+        Ts: (k,dim**2) array
+            The transitions between the calculated eigenfrequencies, Does not take transitions between unlike hamiltonians
+        """
+        Hs=[]
+        Fs=[]
+        Vs=[]
+        Ts=[]
+        for s in self.spins:
+            H=s.dynamicH(B,func=None,static=static)
+            F,V=s.getEigFreq(H)
+            T=eachElemFunc(F,F,axis=1)   
+            Hs.append(H)
+            Fs.append(F)
+            Vs.append(V)
+            Ts.append(T)
+        self.Hs=Hs
+        self.Vs=Vs
+        self.Fs=Fs
+
+        Fs=np.hstack(Fs)
+        Ts=np.concatenate(Ts,axis=1)
+
+        return Fs,Ts
+    
+    def gradient(self):
+        """
+        Calculates the gradient
+
+        Parameters
+        ----------
+        None
+            Relies on paramaters passed into getEigFreq call that first
+        Returns
+        -------
+        Fps: (k,dim1+dim2+...+dimN,3) array
+            The calculated gradients
+        Tps: (k,dim1**2+dim2**2+...+dimN**2,3) array
+            The gradients of the transitions
+        """
+        ret=[]
+        Tp=[]
+        for i,s in enumerate(self.spins):
+            R=s.gradient(self.Vs[i])
+            ret.append(R)
+            Tp.append(eachElemFunc(R,R,axis=1))
+        return np.concatenate(ret,axis=1),np.concatenate(Tp,axis=1)
+    def curvature(self):
+        """
+        Calculates the Curvature
+
+        Parameters
+        ----------
+        None
+            Relies on paramaters passed into getEigFreq call that first
+        Returns
+        -------
+        Fps: (k,dim1+dim2+...+dimN,3,3) array
+            The calculated Curvatures
+        Tps: (k,dim1**2+dim2**2+...+dimN**2,3,3) array
+            The Curvatures of the transitions
+        """
+        ret=[]
+        Tpp=[]
+        for i,s in enumerate(self.spins):
+            R=s.curvature(self.Vs[i],self.Fs[i])
+            ret.append(R)
+            Tpp.append(eachElemFunc(R,R,axis=1))
+        return np.concatenate(ret,axis=1), np.concatenate(Tpp,axis=1)
+    def spinTransitionStrength(self,Op:np.matrix):
+        """
+        Calculates the Oscillator strength
+
+        Parameters
+        ----------
+        Relies on paramaters passed into getEigFreq call that first
+        
+        Op: np.matrix
+            the operator matrix that mediates the transition
+
+        Returns
+        -------
+        Os: (k,dim1**2+dim2**2+...+dimN**2,3) array
+            The calculated transition strength between each energy level
+        """
+        Os=[]
+        for i,s in enumerate(self.spins):
+            O=s.spinTransitionStrength(self.Vs[i],Op)
+            Os.append(O)
+        return np.concatenate(Os,axis=1)
+    def interestingTransitions(self,fCav=np.inf):
+        Ts=[]
+        for i,s in enumerate(self.spins):
+            Ts.append(interestingTransitions(s.dim)+self.i[i]**2)
+        TOI=np.concatenate(Ts)
+        if not np.isinf(fCav):
+            _,ZFT=self.getEigFreq(np.zeros((3,2)))
+            TOI=TOI[np.where(ZFT[0,TOI]<fCav)]
+        return TOI
+    def genLabels(self):
+        Labels=[]
+        for i,s in enumerate(self.spins):
+            a,b=tilerepidx(s.dim)
+            if self.labels==None:
+                idstr="(%s) "%i
+            else:
+                idstr="(%s) "%self.labels[i]
+            lab=[idstr+"%s<->%s"%(a[t],b[t]) for t in range(s.dim**2)]
+            Labels.append(lab)
+
+        return np.concatenate(Labels)
 #---------------------------------------------------------------------------------------------------------------------------------------
 #OLD CLASS FUNCTIONS
 #---------------------------------------------------------------------------------------------------------------------------------------
@@ -1134,6 +1298,37 @@ def transitionPixelPlot(freq,Bs,OS=None,frange = None,width=1/10,plot=True,cmap 
         return gx,gy,1-np.real(gz).T
 
 
+def hyperquad(A:np.matrix,O:np.matrix,B:np.matrix)->np.matrix:
+    """
+    Calculates terms of the form A@O@C, returning the correct shape, this covers both hyperfine and quadrupole
+    Parameters
+    ----------
+    A: np.matrix (3,Adim)
+        First tensor
+    O: np.matrix (3,3)
+        Second (operator) tensor
+    B: np.matrix (3,Bsdim)
+        The Quadrupole tensor
+
+    Returns
+    -------
+    H: np.matrix (Adim*Bdim,Adim*Bdim)
+        The calculated hamiltonian term
+    """
+    Bdim=int(np.sqrt(B.shape[0]))
+    Adim=int(np.sqrt(A.shape[0]))
+
+
+    OB=np.array(O@B.T)
+    OBx=OB[0,:].reshape(Bdim,Bdim)
+    OBy=OB[1,:].reshape(Bdim,Bdim)
+    OBz=OB[2:,:].reshape(Bdim,Bdim)
+
+    Ax=A[:,0].reshape(Adim,Adim)
+    Ay=A[:, 1].reshape(Adim,Adim)
+    Az=A[:,2].reshape(Adim,Adim)
+
+    H=np.array(np.kron(Ax,OBx)+np.kron(Ay,OBy)+np.kron(Az,OBz))
 
 def properRotation(j,n):
     """
@@ -1142,6 +1337,29 @@ def properRotation(j,n):
     n: the fraction of rotation coming from the symmetry operation
     """
     return np.divide(np.sin((j+1/2)*2*np.pi/n),np.sin(np.pi/n))
+
+
+def interestingTransitions(dim:int)->np.array:
+    """
+    Returns "Interesting" Transitions, this is mostly for cavity matching it assumes that transitions with energy levels from opposite halves 
+    of the spectrum will have a positive gradient
+
+    Parameters
+    ----------
+    dim: int
+        The number of energy levels
+
+    Returns
+    -------
+    TOI: np.array
+        The Transitions of interest
+    """
+    c=np.arange(0,dim//2,1)
+    d=np.arange(dim//2,dim,1)
+
+    return eachElemFunc(d,dim*c,axis=0,func=np.add)
+
+
 
 #---------------------------------------------------------------------------------------------------------------------------------------
 #SPHERICAL COORDINATE FUNCTIONS

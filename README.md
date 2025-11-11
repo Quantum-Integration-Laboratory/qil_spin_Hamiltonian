@@ -80,7 +80,17 @@ With this the we can determine the field induced dephasing rate
 ```math
 \frac{1}{\pi T_{2}} = \vec{S}_{1}\cdot\Delta\vec{B}+\Delta\vec{B}\cdot\vec{S}_{2}\cdot\Delta\vec{B}
 ```
-
+### Further Details
+#### Hyperfine shape
+The speedup of making the columnular spin matricies makes things a little bit tricky when it comes to doing hyperfine, for the most part our electron spin is spin half resulting in 3 2x2 matrices, or a 4x3 in our form. The nuclear spin will generally be bigger with 3 (2I+1)x(2I+1) matricies (2J+1)^2 x 3.
+The direct multiplication will result in a matrix with the correct dimension but not the desired $[2(2I+1)]\times[2(2I+1)]$ shape.
+```math
+\underbrace{HHF}_{(2J+1)^2 \times 4}=\underbrace{I}_{(2J+1)^2 \times 3}\cdot\underbrace{A}_{3\times3}\cdot\underbrace{S^T}_{3\times4}
+```
+In actuality what we are aiming for is something resembling them kronecker product of the two spin matricies, simplifying to the z case i.e. `A=np.diag([0,0,1])`
+```math
+\underbrace{HHF}_{2(2J+1) \times 2(2J+1)}=\underbrace{I_{z}}_{(2J+1) \times (2J+1)}\otimes \underbrace{S_{z}}_{2\times 2}
+```
 # Installation
 The package should be installed with a package manager. 
 1. Clone this repo to a local location.

@@ -35,11 +35,33 @@ def transitionOptimiseFunc(S,j,Bs):
             The calculated frequencies
     """
     HG = S.dynamicH(Bs)#np.array(S.H)[:,:,np.newaxis]+
-    F,V = S.getEigFreq(HG.T)
+    F,V = S.getEigFreq(HG)
     
-    TGs=spin.eachElemFunc(F,F,ax=1)
+    TGs=spin.eachElemFunc(F,F)
     return TGs[:,j]
 
+def transitionOptimiseFuncMulti(S,j,Bs):
+    """
+    For use with lsMatch, frequency at a set of magnetic field values
+
+        Parameters
+        ----------
+        S : cSpinHamiltonian
+            The system to calculate values on
+        j: int
+            The index of the transition to be calculated
+        Bs: np.ndarray, (3,k)
+            The magnetic field values to calculate the frequencies at
+        Returns
+        -------
+        TGs: np.ndarray(1,k)
+            The calculated frequencies
+    """
+#    HG = S.dynamicH(Bs)#np.array(S.H)[:,:,np.newaxis]+
+    F,TGs = S.getEigFreq(Bs)
+    
+    # TGs=spin.eachElemFunc(F,F)
+    return TGs[:,j]
 
 
 #returns the index of Zefoz points of a dataset A
