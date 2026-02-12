@@ -1,0 +1,15 @@
+#Data Source
+  #Nd 143
+  # Electron Paramagnetic Resonance spectroscopy of a scheelite crystal using microwave photon counting
+  # https://arxiv.org/abs/2504.01592
+Spin:
+  Espin: "1/2"
+  Ispin: "7/2"
+E_Zeeman:
+  g: np.matrix([[35.42,0,0],[0,35.42,0],[0,0,28.49]])*1E9*h/muB
+  g_rot: np.array([0,0,0])
+Hyperfine:
+  A: np.matrix([[-773,0,0],[0,-773,0],[0,0,606]])*1e6*h
+  A_rot: np.array([0,0,0])
+N_Zeeman:
+  mu: "-1.07"

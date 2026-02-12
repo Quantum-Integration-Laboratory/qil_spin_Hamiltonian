@@ -1,3 +1,8 @@
+#Data Source
+    #Magentic g tensors for the 4I15/2 and 4I13/2 states of Er3+:Y2SiO5
+    # by Sun et. al.
+    # https://link.aps.org/doi/10.1103/PhysRevB.77.085124
+    #Orientation is D1,D2,b
 Spin:
   Espin: 1/2
   Ispin: 7/2

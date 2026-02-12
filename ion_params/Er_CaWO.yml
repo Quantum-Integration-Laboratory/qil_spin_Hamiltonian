@@ -1,0 +1,14 @@
+#Data Source
+  # O'Sullivan et. al. Individual solid-state nuclear spin qubits with coherence exceeding seconds
+  # https://arxiv.org/abs/2504.01592
+Spin:
+  Espin: "1/2"
+  Ispin: "7/2"
+E_Zeeman:
+  g: np.matrix([[117.3,0,0],[0,117.3,0],[0,0,17.45]])*1E9*h/muB
+  g_rot: np.array([0,0,0])
+Hyperfine:
+  A: np.matrix([[-880,0,0],[0,-880,0],[0,0,-130]])*1e6*h
+  A_rot: np.array([0,0,0])
+N_Zeeman:
+  mu: "-0.56"

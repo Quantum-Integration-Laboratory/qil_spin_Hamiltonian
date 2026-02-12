@@ -28,7 +28,7 @@ NoneType=type(None)
 
 obsWarning="This function is old and probably ineffecient. It may well never be deleted but you probably should avoid it anyway."
 
-def hamilFromYAML(filename:str,EOveride:float=None,IOveride:float=None,AScale:float=None):
+def hamilFromYAML(filename:str,EOveride:float=None,IOveride:float=None,NmuOverride:float=None):
     """
     Creates a hamiltonian from the paramaters contained in a YAML file
     Parameters
@@ -39,8 +39,8 @@ def hamilFromYAML(filename:str,EOveride:float=None,IOveride:float=None,AScale:fl
         Allows a different electronic spin to be used, probably less useful
     EOveride: float
         Allows a different nuclear spin to be used, useful for isotopes
-    Ascale: float
-        Allows a isotropic scaling factor on the hyperfine matrix, useful for isotopes
+    NmuOverride: float
+        change the nuclear zeeman mu factor this also scales the hyperfine tensor appropriatly
     Returns
     -------
     spin: cSpinHamiltonian
@@ -58,7 +58,17 @@ def hamilFromYAML(filename:str,EOveride:float=None,IOveride:float=None,AScale:fl
         I=eval(params["Spin"]["Ispin"])
     hamil=cSpinHamiltonian(E,I)
     hamil.importYAMLparams(filename)
-    if not type(AScale)==NoneType:
+    if not type(NmuOverride)==NoneType:
+        #Get the initally defined nuclear g-factor
+        Iprev=eval(params["Spin"]["Ispin"])
+        muPrev=hamil.gN[0,0]
+        #print(muPrev,Iprev)
+        gPrev=muPrev/Iprev
+        #get the new and therefore our scaling factors
+        gNew=NmuOverride/IOveride
+        AScale=gNew/gPrev
+        hamil.mu=NmuOverride
+
         hamil.hyperfineInteraction(hamil.A*AScale)
     dH = hamil.genDerivMatrix()
     hamil.dH=dH
@@ -438,7 +448,7 @@ class cSpinHamiltonian:
         else:
             HD=func(B)
         if type(self.H) is NoneType:
-            print("Zeeman",HD.shape)
+            #print("Zeeman",HD.shape)
             self.H=np.zeros((self.dim,self.dim))
 
         
@@ -619,38 +629,29 @@ class cSpinHamiltonian:
         return np.squeeze(TransitionStrength(V,V,Od,self.dim))
     
 
-class cMultiSpin():
-    def __init__(self,spins:list[cSpinHamiltonian],labels=None)->None:
-        """
-        Basically a wrapper that makes it easier to handle multiple spin systems.
-        In general this is useful for handling isotopes
 
+class cOpticalSpin():
+    def __init__(self,ground:cSpinHamiltonian,excited:cSpinHamiltonian)->None:
+        """
+        A wrapper that allows us to keep track of an optical system consisting of both a ground and excited state
         Parameters
         ----------
-        spins: list[cSpinHamiltonian]
-            The list of spin hamiltonians to handle
+        Ground: cSpinHamiltonian
+            The ground state hamiltonian system
+        Excited: cSpinHamiltonian
+            The excited state hamiltonian system
 
         Returns
         -------
-        self: cMultiSpin
+        self: cOptical Spin
             The class
         """
-        self.spins=spins
-        self.i=[0]+[s.dim for s in spins]
-        self.labels=labels
-    # def _multiDecorator(func):
-    #     """
-    #     Didn't end up being used in the end as the functions where slightly too different.
-    #     It would be nice to work out a way to use a decorator for things
-    #     """
-    #     def multiFunc(self,*args,**kwargs):
-    #         ret=[]
-    #         for i,s in enumerate(self.spins):
-    #            R=func(s,*args,**kwargs)
-    #            ret.append(R)
-    #         return ret
-    #     return multiFunc
-    def getEigFreq(self,B:np.ndarray,static:bool=True)->tuple[np.ndarray,np.ndarray]:
+        self.ground=ground
+        self.excited=excited
+        self.states=[ground,excited]
+
+
+    def getEigFreq(self,B:np.ndarray,static:bool=True,vectors=False)->tuple[np.ndarray,np.ndarray]:
         """
         Handles the hamiltonian generation and calculation of frequencies and eigenvectors.
         This must be called before any other function. 
@@ -670,6 +671,152 @@ class cMultiSpin():
             The calculated eigenfrequencies
         Ts: (k,dim**2) array
             The transitions between the calculated eigenfrequencies, Does not take transitions between unlike hamiltonians
+        Vs: (k,dim,dim) array
+            The transitions between the calculated eigenfrequencies, Does not take transitions between unlike hamiltonians
+        
+        """
+        Hs=[]
+        Fs=[]
+        Vs=[]
+        for s in self.states:
+            H=s.dynamicH(B,func=None,static=static)
+            F,V=s.getEigFreq(H)
+            Hs.append(H)
+            Fs.append(F)
+            Vs.append(V)
+        self.Hs=Hs
+        self.Vs=Vs
+        self.Fs=Fs
+
+
+        Ts=eachElemFunc(Fs[1],Fs[0])
+        Fs=np.hstack(Fs)
+
+        return Fs,Ts
+    def gradient(self):
+        """
+        Calculates the gradient
+
+        Parameters
+        ----------
+        None
+            Relies on paramaters passed into getEigFreq call that first
+        Returns
+        -------
+        Fps: (k,dim1+dim2+...+dimN,3) array
+            The calculated gradients
+        Tps: (k,dim1**2+dim2**2+...+dimN**2,3) array
+            The gradients of the transitions
+        """
+        Fps=[]
+
+
+        for i,s in enumerate(self.states):
+            R=s.gradient(self.Vs[i])
+            Fps.append(R)
+        Tp=eachElemFunc(Fps[1],Fps[0],axis=1)
+        return np.concatenate(Fps,axis=1),Tp
+    def curvature(self):
+        """
+        Calculates the Curvature
+
+        Parameters
+        ----------
+        None
+            Relies on paramaters passed into getEigFreq call that first
+        Returns
+        -------
+        Fps: (k,dim1+dim2+...+dimN,3,3) array
+            The calculated Curvatures
+        Tps: (k,dim1**2+dim2**2+...+dimN**2,3,3) array
+            The Curvatures of the transitions
+        """
+        ret=[]
+        Tpp=[]
+        for i,s in enumerate(self.states):
+            R=s.curvature(self.Vs[i],self.Fs[i])
+            ret.append(R)
+            Tpp.append(eachElemFunc(R,R,axis=1))
+        return np.concatenate(ret,axis=1), np.concatenate(Tpp,axis=1)
+    
+    def TransitionStrength(self,Op:np.matrix):
+        """
+        Calculates the Oscillator strength
+
+        Parameters
+        ----------
+        Relies on paramaters passed into getEigFreq call that first
+        
+        OpBlank: np.matrix
+            The 2x2 operator that makes up the true operator this is promoted to the correct size by
+            spin.spinTransitionStrength
+
+        Returns
+        -------
+        Os: (k,dim1**2+dim2**2+...+dimN**2,3) array
+            The calculated transition strength between each energy level
+        """
+        O=TransitionStrength(self.Vs[1],self.Vs[0],Op,self.ground.dim)
+       
+        return O
+
+
+
+class cMultiSpin():
+    def __init__(self,spins:list[cSpinHamiltonian],labels=None)->None:
+        """
+        Basically a wrapper that makes it easier to handle multiple spin systems.
+        In general this is useful for handling isotopes
+
+        Parameters
+        ----------
+        spins: list[cSpinHamiltonian]
+            The list of spin hamiltonians to handle
+
+        Returns
+        -------
+        self: cMultiSpin
+            The class
+        """
+        self.spins=spins
+        self.i=[0]+[s.dim for s in spins]
+        self.labels=labels
+        self.n=len(spins)
+    # def _multiDecorator(func):
+    #     """
+    #     Didn't end up being used in the end as the functions where slightly too different.
+    #     It would be nice to work out a way to use a decorator for things
+    #     """
+    #     def multiFunc(self,*args,**kwargs):
+    #         ret=[]
+    #         for i,s in enumerate(self.spins):
+    #            R=func(s,*args,**kwargs)
+    #            ret.append(R)
+    #         return ret
+    #     return multiFunc
+    def getEigFreq(self,B:np.ndarray,static:bool=True,vectors=False)->tuple[np.ndarray,np.ndarray]:
+        """
+        Handles the hamiltonian generation and calculation of frequencies and eigenvectors.
+        This must be called before any other function. 
+        This is the most different from the cSpinHamiltonian implementation as it combines a few functions
+            This is only setup to deal with the standard dynamic hamiltonian functions
+            We also can't nicely return the eigenvectors so these are stored in the class, and the transitions are returned instead
+
+        Parameters
+        ----------
+        B : (3,k) array
+            The magnetic field values to call the function on
+        static: bool
+            If true add the static hamiltonian to the return
+        Returns
+        -------
+        Fs: (k,dim) array
+            The calculated eigenfrequencies
+        Ts: (k,dim**2) array
+            The transitions between the calculated eigenfrequencies, Does not take transitions between unlike hamiltonians
+        Vs: (k,dim,dim) array
+            The transitions between the calculated eigenfrequencies, Does not take transitions between unlike hamiltonians
+        
         """
         Hs=[]
         Fs=[]
@@ -688,6 +835,10 @@ class cMultiSpin():
         self.Fs=Fs
 
         Fs=np.hstack(Fs)
+
+        if vectors:
+
+            return Fs,Vs
         Ts=np.concatenate(Ts,axis=1)
 
         return Fs,Ts
@@ -736,6 +887,7 @@ class cMultiSpin():
             ret.append(R)
             Tpp.append(eachElemFunc(R,R,axis=1))
         return np.concatenate(ret,axis=1), np.concatenate(Tpp,axis=1)
+    
     def spinTransitionStrength(self,Op:np.matrix):
         """
         Calculates the Oscillator strength
@@ -744,8 +896,9 @@ class cMultiSpin():
         ----------
         Relies on paramaters passed into getEigFreq call that first
         
-        Op: np.matrix
-            the operator matrix that mediates the transition
+        OpBlank: np.matrix
+            The 2x2 operator that makes up the true operator this is promoted to the correct size by
+            spin.spinTransitionStrength
 
         Returns
         -------
@@ -754,18 +907,41 @@ class cMultiSpin():
         """
         Os=[]
         for i,s in enumerate(self.spins):
+            # print(s.dim)
+            # Op=np.kron(OpBlank,np.eye(s.dim//2))
             O=s.spinTransitionStrength(self.Vs[i],Op)
             Os.append(O)
         return np.concatenate(Os,axis=1)
+    
     def interestingTransitions(self,fCav=np.inf):
+        """
+        A semi automated attempt to find "interesting transitions" mostly used for cavity matching, these fulfil a few basic criteria
+        - Come from opposite sides of the energy spectrum i.e. for a transitions a<->b, a<dim//2, b>dim//2
+            - This gives a reasonable proxy to the idea that their gradients will be in opposite directions
+        - 0<Zero Field splittings < fCav
+
+        Parameters
+        ----------
+        fCav: float or inf
+            Checks that the transition is likely to intersect the cavity
+
+        Returns
+        -------
+        TOI: array
+            An array of indexes for the found transitions
+
+        """
+
         Ts=[]
+        off=np.cumsum(np.power(self.i,2))
         for i,s in enumerate(self.spins):
-            Ts.append(interestingTransitions(s.dim)+self.i[i]**2)
+            Ts.append(interestingTransitions(s.dim)+off[i])
         TOI=np.concatenate(Ts)
         if not np.isinf(fCav):
             _,ZFT=self.getEigFreq(np.zeros((3,2)))
-            TOI=TOI[np.where(ZFT[0,TOI]<fCav)]
+            TOI=TOI[np.where(np.logical_and(ZFT[0,TOI]<fCav,ZFT[0,TOI]>=0))]
         return TOI
+    
     def genLabels(self):
         Labels=[]
         for i,s in enumerate(self.spins):
@@ -774,10 +950,45 @@ class cMultiSpin():
                 idstr="(%s) "%i
             else:
                 idstr="(%s) "%self.labels[i]
-            lab=[idstr+"%s<->%s"%(a[t],b[t]) for t in range(s.dim**2)]
+            lab=[idstr+"%s$\leftrightarrow$%s"%(a[t],b[t]) for t in range(s.dim**2)]
             Labels.append(lab)
 
         return np.concatenate(Labels)
+    def spinE(self,i:int,_energy:int=1):
+        """
+        Work out what spin energy level index i belongs to 
+
+        Parameters
+        ----------
+        i: int
+            The energy level index
+        _energy: int
+            Power scaling factor should be 1 or 2 this just stops me rewriting the function twice don't call it this way use spinT
+        Returns
+        -------
+        spin: cSpinHamiltonian
+            the spin hamiltonian object corresponding to that index
+
+        """
+        #find the first index in self.i (removing the leading zero) we are leq, extra [0] is because np.where is dumb
+        idx=np.where(i<=np.power(self.i[1:],_energy))[0][0]
+        return self.spins[idx]
+    def spinT(self,i:int):
+        """
+        Work out what spin transition index i belongs to 
+
+        Parameters
+        ----------
+        i: int
+            The energy level index
+        Returns
+        -------
+        spin: cSpinHamiltonian
+            the spin hamiltonian object corresponding to that index
+
+        """
+        #Just call spin E but with a power of 2
+        return self.spinE(i,2)
 #---------------------------------------------------------------------------------------------------------------------------------------
 #OLD CLASS FUNCTIONS
 #---------------------------------------------------------------------------------------------------------------------------------------

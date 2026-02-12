@@ -2,6 +2,7 @@
         #Hyperfine interactions of Er3+ ions in Y2SiO5: Electron paramagnetic resonance in a tunable microwave cavity
         # by Yu-Hui Chen et.al
         # DOI: 10.1103/PhysRevB.97.024419
+        #Orientation is D1,D2,b
 Spin:
   Espin: 1/2
   Ispin: 7/2
