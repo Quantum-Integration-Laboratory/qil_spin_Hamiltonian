@@ -1,0 +1,21 @@
+#Data Source
+  # Ranon et. al. Paramagnetic Resonance of ${\mathrm{Yb}}^{3+}$ in CaW${\mathrm{O}}_{4}$
+  # https://journals.aps.org/pr/abstract/10.1103/PhysRev.134.A1483
+  # For subset 2
+Spin:
+  Espin: "1/2"
+  Ispin: "1/2"
+Rotation:
+  rot: "ZXZ"
+E_Zeeman:
+  g: np.diag([4.115,3.704,1.155])
+  g_rot: np.array([-np.pi/4,7*np.pi/180,0])
+Hyperfine:
+  A: np.matrix([[3.0819,0,0],[0,3.0819,0],[0,0,-0.789]])*1e9*h
+  A_rot: np.array([0,0,0])
+N_Zeeman:
+  mu: "0.987"
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])

@@ -457,8 +457,12 @@ class cSpinHamiltonian:
             #return np.array(self.H)[...,np.newaxis]+HD
         else:
             return HD
-    #gets eigen energies as frequencies
-    def getEigFreq(self,H:np.ndarray=None)->tuple[np.ndarray,np.ndarray]:
+    def getEigFreq(self,B:np.ndarray=None,**kwargs)->tuple[np.ndarray,np.ndarray]:
+        H=self.dynamicH(B,**kwargs)
+        F,V=self.getEigFreqInt(H)
+        return F,V
+
+    def getEigFreqInt(self,H:np.ndarray=None)->tuple[np.ndarray,np.ndarray]:
         """
         Gets the eigen frequencies (spectrum), and eigen vectros of the passed hamiltonian, 
         It is important to note that the eigenvalues are given in frequency units whereas the vectors are in energy units, 
@@ -680,7 +684,7 @@ class cOpticalSpin():
         Vs=[]
         for s in self.states:
             H=s.dynamicH(B,func=None,static=static)
-            F,V=s.getEigFreq(H)
+            F,V=s.getEigFreqInt(H)
             Hs.append(H)
             Fs.append(F)
             Vs.append(V)
@@ -689,7 +693,7 @@ class cOpticalSpin():
         self.Fs=Fs
 
 
-        Ts=eachElemFunc(Fs[1],Fs[0])
+        Ts=eachElemFunc(Fs[1],Fs[0])#eachElemFunc(Fs[1],Fs[0])
         Fs=np.hstack(Fs)
 
         return Fs,Ts
@@ -714,7 +718,7 @@ class cOpticalSpin():
         for i,s in enumerate(self.states):
             R=s.gradient(self.Vs[i])
             Fps.append(R)
-        Tp=eachElemFunc(Fps[1],Fps[0],axis=1)
+        Tp=triElemFunc(Fps[1],Fps[0],axis=1)
         return np.concatenate(Fps,axis=1),Tp
     def curvature(self):
         """
@@ -736,7 +740,7 @@ class cOpticalSpin():
         for i,s in enumerate(self.states):
             R=s.curvature(self.Vs[i],self.Fs[i])
             ret.append(R)
-            Tpp.append(eachElemFunc(R,R,axis=1))
+            Tpp.append(triElemFunc(R,R,axis=1))
         return np.concatenate(ret,axis=1), np.concatenate(Tpp,axis=1)
     
     def TransitionStrength(self,Op:np.matrix):
@@ -824,7 +828,7 @@ class cMultiSpin():
         Ts=[]
         for s in self.spins:
             H=s.dynamicH(B,func=None,static=static)
-            F,V=s.getEigFreq(H)
+            F,V=s.getEigFreqInt(H)
             T=eachElemFunc(F,F,axis=1)   
             Hs.append(H)
             Fs.append(F)
@@ -1344,6 +1348,36 @@ def eachElemFunc(A:np.ndarray,B:np.ndarray,axis:int=1,func:callable=np.subtract,
     else:
         return res
 
+def triElemFunc(A:np.ndarray,B:np.ndarray,axis:int=1,func:callable=np.subtract, nosymm:bool=False)->np.ndarray:
+    """
+    Performs an operation between each element in the upper triangle of A and of B across the given axis
+    This is mostly used to calculate transition and hence defaults to subtraction across the first axis
+    This method avoids subtraction between the same energy levels as well as repeated transitions
+    Parameters
+    ----------
+    A : np.ndarray (...,i,...)
+        The first array
+    B : np.ndarray (...,j,...)
+        The second array
+    axis : int
+        The axis to operate over
+    func: Callable
+        The operation to perform should be of the signature `R=func(A,B)`
+        Defaults to subtraction
+    Returns
+    -------
+    res: np.ndarray (...,i*j,...)
+        The result of the operation on each element
+    """
+    i,j=np.triu_indices(A.shape[axis],k=1,m=B.shape[axis])
+    #We have to be a bit sneaky to get axes right
+    I=[slice(None)]*len(A.shape)
+    I[axis]=i
+    J=[slice(None)]*len(B.shape)
+    J[axis]=j
+
+    res= func(A[tuple(I)],B[tuple(J)])
+    return res
 
 
 def matrixElem(Vi:np.ndarray,O:np.matrix,Vj:np.ndarray,diag:bool=False):

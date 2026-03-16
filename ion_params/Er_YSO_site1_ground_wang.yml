@@ -1,0 +1,27 @@
+#Data Source
+        #Hyperfine states of erbium doped yttrium orthosilicate for long-coherence-time quantum memories
+        # by Shi-Jia Wang et.al
+        # DOI: 10.1103/PhysRevB.97.024419
+        # Site 1
+        # Orientation is D1,D2,b
+        # Euler is: ZXZ, note that they use lower case but refer to the intrinsic rotation
+Spin:
+  Espin: 1/2
+  Ispin: 7/2
+Rotation:
+  rot: "ZXZ"
+E_Zeeman:
+  g: np.diag([2.16,-0.1,14.7])
+  g_rot: np.array([205.2,55.3,30])*np.pi/180
+N_Zeeman:
+  mu: "-0.56"
+Hyperfine:
+  A: np.diag([191.1,-36,1544])*1e6*h
+  A_rot: np.array([202,51.8,-6])*np.pi/180
+Quadrupole:
+  Q: np.diag([9.6,18.3,-27.9])*1e6*h
+  Q_rot: np.array([147,50,316])*np.pi/180
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])

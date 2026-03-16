@@ -7,7 +7,7 @@ Spin:
   Espin: 1/2
   Ispin: 7/2
 Rotation:
-  rot: "ZYZ"
+  rot: "ZXZ"
 E_Zeeman:
   g: np.diag([2.253,0.057,14.61])
   g_rot: np.array([205.87,55.33,29.3])*np.pi/180

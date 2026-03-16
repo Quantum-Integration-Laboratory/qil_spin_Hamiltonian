@@ -1,0 +1,17 @@
+#Data Source
+  # Ranon et. al. Paramagentic resonance of Nd, Dy, Er, Yb in YVO
+  # https://www.sciencedirect.com/science/article/pii/0375960168902181
+Spin:
+  Espin: "1/2"
+  Ispin: "7/2"
+E_Zeeman:
+  g: np.diag([7.085,7.085,3.544])
+  g_rot: np.array([0,0,0])
+Hyperfine:
+  A: np.diag([249.1,249.1,122.6]])*c*h
+  A_rot: np.array([0,0,0])
+Quadrupole:
+  Q:np.eye(3)*13.19*c*h
+  Q_rot:np.array([0,0,0])
+N_Zeeman:
+  mu: "-0.56"

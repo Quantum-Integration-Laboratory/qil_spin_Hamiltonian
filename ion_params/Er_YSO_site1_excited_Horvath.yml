@@ -1,0 +1,25 @@
+#Data Source
+    #Extending Phenomenological Crystal-Field Methods to C1 Point-Group Symmetry: Characterization of the Optically Excited Hyperfine Structure of 167 Er3+:Y2SiO5
+          # Supplementary Materials
+    # by Horvath et. al.
+    # DOI: https://doi.org/10.1103/PhysRevLett.123.057401
+    #Orientation is D1,D2,b
+    # No Rotation
+Spin:
+  Espin: 1/2
+  Ispin: 7/2
+E_Zeeman:
+  g: np.matrix([[2.04,-2.24,-3.4],[-2.24,4.44,5.15],[-3.4,5.15,7.94]])
+  g_rot: np.array([0,0,0])
+Hyperfine:
+  A: np.matrix([[271.96,-293.37,-447.76],[-293.37,583.12,684.97],[-447.76,684.97,1058.43]])*1e6*h
+  A_rot: np.array([0,0,0])
+Quadrupole:
+  Q: np.matrix([[7.47,3.62,5.54],[3.62,0.93,-9.27],[5.54,-9.27,-6.5]])*1e6*h
+  Q_rot: np.array([0,0,0])
+N_Zeeman:
+  mu: "-0.56"
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])

@@ -1,0 +1,22 @@
+#Data Source
+        #Hyperfine Structure and Coherent Properties of Erbium-167-doped Yttrium Orthosilicate
+        # by Jelena Rakonjac
+        #Masters Thesis (Otago)
+Spin:
+  Espin: 1/2
+  Ispin: 7/2
+E_Zeeman:
+  g: np.matrix([[2.01,-2.14,3.78],[-2.14,-2.14,5.11],[3.78,5.11,-3.6]])
+  g_rot: np.array([0,0,0])
+Hyperfine:
+  A: np.matrix([[189.7,-341.6,433.0],[-341.6,-341.6,713.0],[433.0,713.0,-524.8]])*1e6*h
+  A_rot: np.array([0,0,0])
+Quadrupole:
+  Q: np.matrix([[124.1,-20.0,-106.7],[-20.0,-20.0,0.8],[-106.7,0.8,-1.19]])*1e6*h
+  Q_rot: np.array([0,0,0])
+N_Zeeman:
+  mu: "-0.56"
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])
