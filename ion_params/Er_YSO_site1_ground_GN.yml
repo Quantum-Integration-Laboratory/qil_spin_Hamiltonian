@@ -1,0 +1,24 @@
+#Data Source
+    #Hyperfine interaction of Er3+ ions in Y2SiO5: An electron paramagnetic resonance spectroscopy study
+    # by Guillot-Noel et. al.
+    # DOI: https://journals.aps.org/prb/abstract/10.1103/PhysRevB.74.214409
+    #Orientation is D1,D2,b
+    # No Rotation
+Spin:
+  Espin: 1/2
+  Ispin: 7/2
+E_Zeeman:
+  g: np.matrix([[2.92,-3.08,-3.68],[-3.08,8.19,5.96],[-3.68,5.96,5.52]])
+  g_rot: np.array([0,0,0])
+Hyperfine:
+  A: np.matrix([[69.35,-580.73,-248.83],[-580.73,696.30,682.49],[-248.83,682.49,495.54]])*1e6*h
+  A_rot: np.array([0,0,0])
+Quadrupole:
+  Q: np.matrix([[21.40,-8.18,-15.27],[-8.18,3.79,0.60],[-15.27,0.60,25.20]])*1e6*h
+  Q_rot: np.array([0,0,0])
+N_Zeeman:
+  mu: "-0.56"
+Oscillator:
+  par: np.block([[np.eye(odim),np.zeros([odim,odim])],[np.zeros([odim,odim]),np.eye(odim)]])
+  perp: np.block([[np.zeros([odim,odim]),1*np.eye(odim)],[np.eye(odim),np.zeros([odim,odim])]])
+  perp_T: np.block([[np.zeros([odim,odim]),1j*np.eye(odim)],[-1j*np.eye(odim),np.zeros([odim,odim])]])
