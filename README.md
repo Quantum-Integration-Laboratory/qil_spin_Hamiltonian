@@ -1,7 +1,15 @@
+# Overview
+This contains repo contains the spin hamiltonian package written over the course of my PhD. It mainly focuses on work in the rare-earths but is probably more broadly applicable with a bit of work. Most of the functions focus on the generation of energy level diagrams and transition spectra, with a few interfaces for each. Outside of the basics, the main focus has been on finding ZEFOZ points as well as matching to cavities for ESR style measurements, it has proven very effecient at this but this may mean its a little clunky for other uses. Feel free to fork an make any changes.
+
+- 'qil_SpinHamiltonian' contains the actual package functions
+- 'ion_params' contains saved paramaters for a variety of rare-earth ion-host combinations
+- 'experiments' contains a few of the final experiments discussed in my thesis (link provided at some point).
 # Spin Hamiltonian
 This code is designed to implement a model of the spin hamiltonian. This was initially designed with the intention of finding Zero First Order Zeeman (ZEFOZ) points though has expanded in scope somewhat since then.
 
 Two main files are implemented: the main `spin_hamiltonian.py` with most of the functions and `search.py` which is intended for implementing search functions though is a bit limited for now.
+
+
 
 # Theory 
 
